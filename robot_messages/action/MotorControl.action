@@ -1,0 +1,11 @@
+# Request
+string command  # e.g., "MOVE_FORWARD", "STOP"
+float32 distance  # Duration in seconds
+
+---
+# Response
+bool success
+
+---
+# Feedback
+string status
