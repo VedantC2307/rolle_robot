@@ -5,6 +5,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float32
 import RPi.GPIO as GPIO
 import time
+import cv2
 
 class UltrasonicSensorNode(Node):
     def __init__(self):
