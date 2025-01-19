@@ -23,6 +23,8 @@ setup(
             'slam_node = sensors.slam_node:main',
             'motor_control_action_server = sensors.motor_control_action_node:main',
             'ultrasonic_sensor = sensors.ultrasonic_sensor_node:main',
+            'LLM_action_server = sensors.llm_action_server_node:main',
+            'main_controller = sensors.main_controller_node:main',
         ],
     },
 )

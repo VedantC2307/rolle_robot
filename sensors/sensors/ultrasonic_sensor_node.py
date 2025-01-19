@@ -6,21 +6,22 @@ from std_msgs.msg import Float32
 import RPi.GPIO as GPIO
 import time
 
-
 class UltrasonicSensorNode(Node):
     def __init__(self):
         super().__init__('ultrasonic_sensor_node')
 
         # ROS 2 Publisher
-        self.publisher_ = self.create_publisher(Float32, 'ultrasonic_distance', 10)
+        self.publisher_ = self.create_publisher(Float32, 'ultrasonic_distance', 2)
 
         # Timer for periodic distance measurement
-        self.timer = self.create_timer(0.02, self.measure_and_publish_distance)  # 10 Hz
+        self.timer = self.create_timer(0.1, self.measure_and_publish_distance)  # 10 Hz
 
         # GPIO Setup
         self.GPIO_TRIGGER = 18
         self.GPIO_ECHO = 23
         self.ultrasonic_setup()
+
+        self.prev_distance = None
 
         self.get_logger().info("Ultrasonic Sensor Node initialized!")
 
@@ -74,31 +75,31 @@ class UltrasonicSensorNode(Node):
     def measure_and_publish_distance(self):
         """
         Callback function to measure the distance and publish it to the ROS 2 topic.
-        Includes retry logic for robustness.
+        Includes logic to smooth out erratic readings.
         """
-        MAX_RETRIES = 3
-        for attempt in range(MAX_RETRIES):
-            try:
-                # Measure distance
-                distance = self.measure_distance()
+        try:
+            # Measure distance
+            distance = self.measure_distance()
 
-                if distance is not None and 0.02 <= distance <= 4.0:  # Valid range: 2cm to 4m
-                    # Publish the distance
-                    msg = Float32()
-                    msg.data = distance
-                    self.publisher_.publish(msg)
-                    self.get_logger().info(f"Distance: {distance:.2f} meters")
-                    return
+            if distance is not None and 0.02 <= distance <= 4.0:  # Valid range: 2cm to 4m
+                # Smoothing logic: if the difference is too large, use the previous value
+                if self.prev_distance is not None and abs(distance - self.prev_distance) > 1.0:
+                    distance = self.prev_distance
+                    self.get_logger().warn(f"Erratic reading detected. Using previous value: {distance:.2f} meters")
 
-                # If distance is invalid, retry
-                self.get_logger().warn(f"Invalid distance value. Retrying... (Attempt {attempt + 1}/{MAX_RETRIES})")
-                time.sleep(0.01)
+                # Publish the distance
+                msg = Float32()
+                msg.data = distance
+                self.publisher_.publish(msg)
+                self.get_logger().info(f"Distance: {distance:.2f} meters")
 
-            except Exception as e:
-                self.get_logger().error(f"Error in distance measurement (Attempt {attempt + 1}/{MAX_RETRIES}): {e}")
-                time.sleep(0.01)
+                self.prev_distance = distance
 
-        self.get_logger().error("Failed to measure distance after retries.")
+            else:
+                self.get_logger().warn("Invalid distance value.")
+
+        except Exception as e:
+            self.get_logger().error(f"Error in distance measurement: {e}")
 
     def cleanup(self):
         """
@@ -109,7 +110,6 @@ class UltrasonicSensorNode(Node):
             GPIO.cleanup([self.GPIO_TRIGGER, self.GPIO_ECHO])
         except Exception as e:
             self.get_logger().error(f"Error during cleanup: {e}")
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -125,7 +125,6 @@ def main(args=None):
         node.cleanup()
         node.destroy_node()
         rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()

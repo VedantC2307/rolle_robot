@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(robot_messages)
+project(robot_launch)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -11,15 +11,14 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
-find_package(rosidl_default_generators REQUIRED)
+find_package(rclpy REQUIRED)
+# find_package(launch REQUIRED)
+# find_package(launch_ros REQUIRED)
+# find_package(sensors REQUIRED)
 
-ament_export_dependencies(rosidl_default_runtime)
-
-
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "action/MotorControl.action"
-  "action/LLMTrigger.action"
-  
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)

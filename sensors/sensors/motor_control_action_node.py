@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.action import ActionServer
+from rclpy.action import ActionServer, CancelResponse
 from geometry_msgs.msg import Pose
 from robot_messages.action import MotorControl
 from sensors.robot_control_motor import move_motors, stop_motors, MEC_STRAIGHT_FORWARD
@@ -20,6 +20,7 @@ class MotorControlNode(Node):
             MotorControl,  # Replace with your custom action
             'motor_control',
             self.execute_callback,
+            cancel_callback=self.cancel_callback
         )
 
         # Subscriber to /pose_data
@@ -51,6 +52,13 @@ class MotorControlNode(Node):
         self.is_obstacle_detected = False
 
         self.get_logger().info("Motor Control Node initialized!")
+
+    def cancel_callback(self, goal_handle):
+        """Accept or reject a client request to cancel an action."""
+        self.get_logger().info('Received cancel request')
+        stop_motors()
+        self.reset_action_state()
+        return CancelResponse.ACCEPT
 
 
     def ultrasonic_callback(self, msg):
@@ -104,13 +112,13 @@ class MotorControlNode(Node):
         """
         self.get_logger().info("Received action goal.")
         command = goal_handle.request.command
-        distance_to_travel = goal_handle.request.distance  # Target distance in cm
+        distance_to_travel = goal_handle.request.distance
 
         if command == "MOVE_FORWARD":
-            self.get_logger().info(f"Command: MOVE_FORWARD, Distance: {distance_to_travel} cm")
+            self.get_logger().info(f"Command: MOVE_FORWARD, Distance: {distance_to_travel} m")
 
             # Wait for initial pose data if not available
-            timeout = 5.0  # 5 seconds timeout
+            timeout = 5.0
             start_time = time.time()
             while self.current_pose is None:
                 self.get_logger().warn("Waiting for initial pose data...")
@@ -119,17 +127,10 @@ class MotorControlNode(Node):
                     self.get_logger().error("Timeout waiting for pose data")
                     goal_handle.abort()
                     return MotorControl.Result(success=False)
-                
-            
-            # Initial safety check
-            if not self.check_ultrasonic_health():
-                self.get_logger().error("Cannot start movement: Ultrasonic sensor not ready")
-                goal_handle.abort()
-                return MotorControl.Result(success=False)
 
-            if self.is_obstacle_detected:
-                stop_motors()
-                self.get_logger().error("Cannot start movement: Obstacle detected")
+            # Initial safety check
+            if not self.check_ultrasonic_health() or self.is_obstacle_detected:
+                self.get_logger().error("Cannot start movement: Ultrasonic sensor not ready or obstacle detected")
                 goal_handle.abort()
                 return MotorControl.Result(success=False)
 
@@ -141,36 +142,31 @@ class MotorControlNode(Node):
             self.get_logger().info("Starting forward motion...")
             move_motors(90, 90, 90, 90, MEC_STRAIGHT_FORWARD)
 
-            # Monitor the movement until completion or timeout
-            timeout = 30.0  # 30 seconds timeout for movement
+            # Monitor the movement
+            movement_timeout = 10.0
             start_time = time.time()
-            
-            while not goal_handle.is_cancel_requested():
-                # Check for timeout
-                if time.time() - start_time > timeout:
-                    self.get_logger().error("Movement timed out")
+            while time.time() - start_time < movement_timeout:
+                if goal_handle.is_cancel_requested:
+                    self.get_logger().info("Goal cancelled")
                     stop_motors()
-                    goal_handle.abort()
+                    goal_handle.canceled()
                     self.reset_action_state()
                     return MotorControl.Result(success=False)
-                    
-                # Sleep briefly to prevent CPU overload
-                time.sleep(0.1)
-                
-                # Check if goal was completed by process_movement
-                if self.goal_handle is None:
-                    break
 
-            # Handle cancellation
-            if goal_handle.is_cancel_requested():
-                self.get_logger().info("Goal cancelled")
-                stop_motors()
-                goal_handle.canceled()
-                self.reset_action_state()
-                return MotorControl.Result(success=False)
+                if self.process_movement():  # Check if goal is completed
+                    goal_handle.succeed()
+                    self.get_logger().info("Action completed.")
+                    return MotorControl.Result(success=True)
 
-            self.get_logger().info("Action completed.")
-            return MotorControl.Result(success=True)
+                time.sleep(0.1)  # Prevent CPU overload
+
+            # Movement timed out
+            self.get_logger().error("Movement timed out")
+            stop_motors()
+            goal_handle.abort()
+            self.reset_action_state()
+            return MotorControl.Result(success=False)
+
         else:
             self.get_logger().warning(f"Unknown command: {command}")
             goal_handle.abort()
@@ -179,49 +175,33 @@ class MotorControlNode(Node):
     def process_movement(self):
         """
         Process movement logic based on pose and distance traveled.
+        Returns True if the goal is completed, False otherwise.
         """
         try:
-            # Check if pose data is available
             if self.current_pose is None or self.start_pose is None:
                 self.get_logger().warning("Pose data unavailable. Waiting for updates...")
-                return
-            
-            if not self.check_ultrasonic_health():
-                raise Exception("Ultrasonic sensor data invalid")
+                return False
 
-            if self.is_obstacle_detected:
-                raise Exception(f"Obstacle detected at {self.object_distance:.2f} meters")
+            if not self.check_ultrasonic_health() or self.is_obstacle_detected:
+                raise Exception("Ultrasonic sensor data invalid or obstacle detected")
 
-            # Calculate distance traveled
             traveled_distance = self.calculate_distance(self.start_pose, self.current_pose)
             self.get_logger().info(f"Current distance traveled: {traveled_distance:.3f} meters")
+            self.get_logger().info(f"Ultrasonic sensor distance: {self.object_distance:.2f} meters")
 
-            self.get_logger().info(f"Ultrasonic sesnor distance: {self.object_distance:.2f} meters")
-
-            # if self.object_distance is None:
-            #     self.get_logger().warn("Ultrasonic distance unavailable. Assuming clear path.")
-            # else:
-            #     if self.object_distance < 0.35:  # 35 cm safety margin
-            #         self.get_logger().error("Obstacle detected. Stopping motors.")
-            #         stop_motors()
-            #         self.goal_handle.abort()
-            #         self.reset_action_state()
-            #         return
-
-            # Publish feedback to the client
             feedback = MotorControl.Feedback()
             feedback.status = f"Traveled: {traveled_distance:.2f} meters"
             self.goal_handle.publish_feedback(feedback)
             self.get_logger().info(feedback.status)
 
             safe_distance = traveled_distance + 0.3
-            # Stop if the target distance is reached
             if safe_distance >= self.goal_distance:
                 self.get_logger().info(f"Target distance {self.goal_distance:.2f} meters reached.")
                 stop_motors()
-                if not self.goal_handle.is_cancel_requested():
-                    self.goal_handle.succeed()
                 self.reset_action_state()
+                return True  # Goal completed
+
+            return False  # Goal not yet completed
 
         except Exception as e:
             self.get_logger().error(f"Error during movement processing: {str(e)}")
@@ -232,6 +212,7 @@ class MotorControlNode(Node):
                 except Exception as abort_error:
                     self.get_logger().error(f"Error aborting the goal: {str(abort_error)}")
             self.reset_action_state()
+            return False  # Indicate failure
 
     def calculate_distance(self, start_pose, current_pose):
         """
