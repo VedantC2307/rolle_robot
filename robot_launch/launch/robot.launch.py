@@ -25,7 +25,7 @@ def generate_launch_description():
     # Launch main_controller node
     main_controller_node = Node(
         package='sensors',
-        executable='main_controller',
+        executable='testing',
         name='main_controller',
         output='screen',
         emulate_tty=True 

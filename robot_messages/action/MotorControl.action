@@ -1,7 +1,7 @@
 # Request
 string command  # e.g., "MOVE_FORWARD", "STOP"
 float32 distance  # Duration in seconds
-
+float32 rotation_degrees # Rotation degrees
 ---
 # Response
 bool success

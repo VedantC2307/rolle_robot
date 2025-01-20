@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Improve logic
 
 import rclpy
 from rclpy.node import Node
@@ -86,7 +87,7 @@ class UltrasonicSensorNode(Node):
                 # Smoothing logic: if the difference is too large, use the previous value
                 if self.prev_distance is not None and abs(distance - self.prev_distance) > 1.0:
                     distance = self.prev_distance
-                    self.get_logger().warn(f"Erratic reading detected. Using previous value: {distance:.2f} meters")
+                    # self.get_logger().warn(f"Erratic reading detected. Using previous value: {distance:.2f} meters")
 
                 # Publish the distance
                 msg = Float32()

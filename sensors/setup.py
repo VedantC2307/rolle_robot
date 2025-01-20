@@ -25,6 +25,7 @@ setup(
             'ultrasonic_sensor = sensors.ultrasonic_sensor_node:main',
             'LLM_action_server = sensors.llm_action_server_node:main',
             'main_controller = sensors.main_controller_node:main',
+            'testing = sensors.test:main',
         ],
     },
 )
