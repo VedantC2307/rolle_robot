@@ -388,8 +388,10 @@ class MotorControlNode(Node):
                     self.goal_handle.publish_feedback(feedback)
                     self.get_logger().info(feedback.status)
 
+                safe_travel_distance = traveled_distance + 0.3
+
                 # Check if we've reached the goal
-                if traveled_distance >= self.goal_distance:
+                if safe_travel_distance >= self.goal_distance:
                     self.get_logger().info(f"Target distance {self.goal_distance:.2f} meters reached")
                     self.stop_movement()
 
