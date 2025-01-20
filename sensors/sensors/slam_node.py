@@ -12,8 +12,8 @@ from geometry_msgs.msg import Pose
 class WebSocketListenerNode(Node):
     def __init__(self):
         super().__init__('websocket_listener_node')
-        print("WebSocket Listener Node initialized!")  # Basic console print
-        self.get_logger().info("Node initialized!") 
+        
+        self.get_logger().info("WebSocket Position Listener Node initialized!") 
 
         # WebSocket URL
         self.ws_slam_url = "wss://192.168.0.214:8888/xr-slam-client"
@@ -66,7 +66,7 @@ class WebSocketListenerNode(Node):
                             if pose_data:
                                 # self.publish_pose(pose_data)
                                 # Log the pose data
-                                self.get_logger().info(f"Extracted Pose Data: {pose_data}")
+                                self.get_logger().debug(f"Extracted Pose Data: {pose_data}")
                                 self.publish_pose(pose_data)
                             else:
                                 self.get_logger().warning("Pose data extraction failed or incomplete.")

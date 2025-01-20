@@ -8,7 +8,6 @@ from launch.actions import IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def generate_launch_description():
-    # Get the share directory for the 'sensors' package
     
     # Launch llm_action_server node
     llm_action_server_node = Node(
@@ -45,13 +44,6 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True
     )
-
-    # Add actions to the launch description
-    # ld = LaunchDescription()
-    # ld.add_action(llm_action_server_node)
-    # ld.add_action(motor_control_node)
-    # ld.add_action(ultrasonic_sensor_node)
-    # ld.add_action(slam_node)
 
     return LaunchDescription([
         slam_node,

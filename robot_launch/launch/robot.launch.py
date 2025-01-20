@@ -10,7 +10,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 def generate_launch_description():
     # Get the share directory for the 'sensors' and 'launcher' package
     sensors_pkg_share = get_package_share_directory('sensors')
-    robot_launch_pkg_share = get_package_share_directory('launcher')
+    robot_launch_pkg_share = get_package_share_directory('robot_launch')
 
     # Define the launch description
     ld = LaunchDescription()
@@ -28,11 +28,10 @@ def generate_launch_description():
         executable='main_controller',
         name='main_controller',
         output='screen',
-        emulate_tty=True  # Optional: For colored output
+        emulate_tty=True 
     )
 
-    # Add actions to the launch description
-    ld.add_action(sensors_launch)
-    ld.add_action(main_controller_node)
-
-    return ld
+    return LaunchDescription([
+        sensors_launch,
+        main_controller_node
+    ])

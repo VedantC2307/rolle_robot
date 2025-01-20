@@ -5,7 +5,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float32
 import RPi.GPIO as GPIO
 import time
-import cv2
+
 
 class UltrasonicSensorNode(Node):
     def __init__(self):
@@ -92,7 +92,7 @@ class UltrasonicSensorNode(Node):
                 msg = Float32()
                 msg.data = distance
                 self.publisher_.publish(msg)
-                self.get_logger().info(f"Distance: {distance:.2f} meters")
+                self.get_logger().debug(f"Distance: {distance:.2f} meters")
 
                 self.prev_distance = distance
 
