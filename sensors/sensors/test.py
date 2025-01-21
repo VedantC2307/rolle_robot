@@ -7,6 +7,8 @@ import asyncio
 import websockets
 import ssl
 from threading import Thread, Event
+from geometry_msgs.msg import Vector3
+import time
 
 class MainController(Node):
     def __init__(self):
@@ -36,17 +38,140 @@ class MainController(Node):
 
         self.current_prompt = None
         self.processing_prompt = False
-        self.last_processed_prompt = None       
+        self.last_processed_prompt = None
 
-        # Create the timer without making it async
-        self.create_timer(5.0, self.timer_callback)
+        # Subscriber for pose data
+        self.subscription = self.create_subscription(
+            Vector3,
+            '/robot_position',
+            self.position_callback,
+            2
+        )
+        
+        self.current_position = None
+        self.start_position = None
+    
+        # Create timer with shorter interval
+        self.create_timer(1.0, self.timer_callback)  # Changed from 5.0 to 1.0 seconds
 
     def timer_callback(self):
-        """Non-async timer callback that creates and runs the coroutine"""
-        if self.loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.main_logic(), self.loop)
+        """Simple timer callback that checks for new prompts and processes them"""
+        # Skip if we're already processing or no new prompt
+        if self.processing_prompt or not self.current_prompt:
+            return
+        
+        # Skip if we've already processed this prompt
+        if self.current_prompt == self.last_processed_prompt:
+            return
+
+        self.get_logger().info("Starting to process new prompt...")
+        self.processing_prompt = True
+        
+        try:
+            # Prepare the complete prompt with position information
+            robot_position = ""
+            if self.current_position and self.start_position:
+                start_x = round(self.start_position.x, 2)
+                start_y = round(self.start_position.y, 2)
+                start_z = round(self.start_position.z, 2)
+                robot_position = f"The robots starting position is x:{start_z}, y:{start_x}, z:{start_y}. Your current position is x:{self.current_position.z}, y:{self.current_position.x}, z:{self.current_position.y}"
+            
+            complete_prompt = self.current_prompt + ". " + robot_position
+
+            # Send to LLM
+            self.get_logger().info("Sending prompt to LLM...")
+            llm_result = self.send_llm_request(complete_prompt)
+            
+            if llm_result:
+                self.get_logger().info(f"Received LLM response: {llm_result.llm_response}")
+                
+                # Process result
+                motor_command, distance, task_complete, _ = self.process_llm_result(llm_result)
+                
+                if motor_command and distance is not None:
+                    # Send motor command
+                    self.get_logger().info(f"Sending motor command: {motor_command}, distance: {distance}")
+                    success = self.send_motor_command(motor_command, distance)
+                    
+                    if success:
+                        self.get_logger().info("Motor command executed successfully")
+                    else:
+                        self.get_logger().error("Motor command failed")
+                else:
+                    self.get_logger().error("Failed to process LLM result")
+            else:
+                self.get_logger().error("Failed to get LLM response")
+
+            # Mark this prompt as processed
+            self.last_processed_prompt = self.current_prompt
+            
+        except Exception as e:
+            self.get_logger().error(f"Error in main logic: {str(e)}")
+        finally:
+            self.processing_prompt = False
+
+    def send_llm_request(self, prompt):
+        """Send request to LLM server"""
+        try:
+            # Wait for server
+            if not self.llm_action_client.wait_for_server(timeout_sec=1.0):
+                self.get_logger().error("LLM server not available")
+                return None
+
+            # Create and send goal
+            goal_msg = LLMTrigger.Goal()
+            goal_msg.prompt = prompt
+            
+            self.get_logger().info("Sending goal to LLM server...")
+            future = self.llm_action_client.send_goal_async(goal_msg)
+            rclpy.spin_until_future_complete(self, future)
+            
+            if not future.result() or not future.result().accepted:
+                self.get_logger().error("LLM goal was rejected")
+                return None
+
+            # Get result
+            result_future = future.result().get_result_async()
+            rclpy.spin_until_future_complete(self, result_future)
+            
+            return result_future.result()
+
+        except Exception as e:
+            self.get_logger().error(f"Error in send_llm_request: {str(e)}")
+            return None
+
+    def send_motor_command(self, command, distance):
+        """Send command to motor control server"""
+        try:
+            # Wait for server
+            if not self.motor_control_client.wait_for_server(timeout_sec=1.0):
+                self.get_logger().error("Motor server not available")
+                return False
+
+            # Create and send goal
+            goal_msg = MotorControl.Goal()
+            goal_msg.command = command
+            goal_msg.distance = float(distance)
+            
+            future = self.motor_control_client.send_goal_async(goal_msg)
+            rclpy.spin_until_future_complete(self, future)
+            
+            if not future.result() or not future.result().accepted:
+                self.get_logger().error("Motor goal was rejected")
+                return False
+
+            # Get result
+            result_future = future.result().get_result_async()
+            rclpy.spin_until_future_complete(self, result_future)
+            
+            return result_future.result().success
+
+        except Exception as e:
+            self.get_logger().error(f"Error in send_motor_command: {str(e)}")
+            return False
 
     def run_async_loop(self):
+        """Run the asyncio event loop for WebSocket"""
         asyncio.set_event_loop(self.loop)
         try:
             self.loop.run_until_complete(self.listen_to_websocket())
@@ -56,9 +181,7 @@ class MainController(Node):
             self.loop.close()
 
     async def listen_to_websocket(self):
-        """
-        Connect to the WebSocket server and continuously listen for prompt updates.
-        """
+        """Listen to WebSocket for prompts"""
         while not self.shutdown_event.is_set():
             try:
                 self.get_logger().info(f"Connecting to WebSocket server at {self.websocket_prompt_uri}...")
@@ -68,15 +191,12 @@ class MainController(Node):
                         if self.shutdown_event.is_set():
                             break
                         try:
-                            self.get_logger().debug(f"Raw message received: {message}")
                             data = json.loads(message)
                             if 'message' in data and 'prompt' in data['message']:
                                 self.current_prompt = data['message']['prompt']
                                 self.get_logger().info(f"Received new prompt: {self.current_prompt}")
-                            else:
-                                self.get_logger().warning("Received message without prompt data.")
-                        except json.JSONDecodeError:
-                            self.get_logger().error(f"Invalid JSON received: {message}")
+                        except json.JSONDecodeError as e:
+                            self.get_logger().error(f"Invalid JSON received: {str(e)}")
                         except Exception as e:
                             self.get_logger().error(f"Error processing prompt data: {str(e)}")
             except websockets.exceptions.ConnectionClosed as e:
@@ -86,200 +206,44 @@ class MainController(Node):
                 self.get_logger().error(f"WebSocket error: {str(e)}. Retrying in 5 seconds...")
                 await asyncio.sleep(5)
 
-    async def main_logic(self):
-        """
-        Main logic of the controller:
-        1. Send prompt to LLM action server.
-        2. Process LLM result.
-        3. Send command to motor control action server.
-        """
-        try:
-            # Check if we have a valid prompt
-            if self.processing_prompt or not self.current_prompt:
-                # self.get_logger().debug("No prompt available, skipping main logic loop")
-                return
-            
-            if self.current_prompt == self.last_processed_prompt:
-                return
-            
-            self.processing_prompt = True
-            self.last_processed_prompt = self.current_prompt
-
-            # 1. Send prompt to LLM action server
-            llm_goal_handle = await self.send_goal_to_llm_server(self.current_prompt)
-            if not llm_goal_handle:
-                self.get_logger().error("LLM goal was rejected")
-                self.processing_prompt = False
-                return
-
-            llm_result = await self.get_result_from_llm_server(llm_goal_handle)
-            if not llm_result:
-                self.get_logger().error("Failed to get result from LLM server")
-                self.processing_prompt = False
-                return
-            
-            self.get_logger().info(f"LLM Response: {llm_result}")
-
-            # 2. Process LLM result
-            motor_command, distance = self.process_llm_result(llm_result)
-            if not motor_command:
-                self.get_logger().error("Could not determine motor command from LLM result")
-                self.processing_prompt = False
-                return
-
-            # 3. Send command to motor control action server
-            motor_goal_handle = await self.send_goal_to_motor_server(motor_command, distance)
-            if not motor_goal_handle:
-                self.get_logger().error("Motor control goal was rejected")
-                self.processing_prompt = False
-                return
-
-            motor_result = await self.get_result_from_motor_server(motor_goal_handle)
-            if not motor_result:
-                self.get_logger().error("Failed to get result from motor control server")
-            elif motor_result.success:
-                self.get_logger().info("Motor control action succeeded")
-            else:
-                self.get_logger().info("Motor control action failed")
-
-        except Exception as e:
-            self.get_logger().error(f"Error in main logic: {str(e)}")
-        finally:
-            self.processing_prompt = False
-
-    async def send_goal_to_llm_server(self, prompt):
-        """Sends the prompt to the LLM action server."""
-        try:
-            # Ensure prompt is a string and not None
-            if not isinstance(prompt, str) or not prompt.strip():
-                self.get_logger().error("Invalid prompt received. Prompt must be a non-empty string.")
-                return None
-
-            goal_msg = LLMTrigger.Goal()
-            goal_msg.prompt = prompt
-            self.get_logger().info(f"Sending prompt to LLM action server: {prompt}")
-
-            # Wait for server without await
-            if not self.llm_action_client.wait_for_server(timeout_sec=10.0):
-                self.get_logger().error("LLM action server not available within timeout.")
-                return None
-            self.get_logger().info("LLM action server available.")
-
-            # Send goal asynchronously
-            send_goal_future = await self.llm_action_client.send_goal_async(goal_msg)
-            
-            if not send_goal_future.accepted:
-                self.get_logger().warning('LLM goal rejected')
-                return None
-
-            self.get_logger().info('LLM goal accepted')
-            return send_goal_future
-
-        except Exception as e:
-            self.get_logger().error(f"Error sending goal to LLM server: {str(e)}")
-            return None
-
-    async def get_result_from_llm_server(self, goal_handle):
-        """Gets the result from the LLM action server."""
-        try:
-            result_future = await goal_handle.get_result_async()
-            
-            if not result_future:
-                self.get_logger().error('LLM action failed')
-                return None
-
-            return result_future.result
-
-        except Exception as e:
-            self.get_logger().error(f"Error getting result from LLM server: {str(e)}")
-            return None
-
-    async def send_goal_to_motor_server(self, command, distance):
-        """Sends the command and distance to the motor control action server."""
-        try:
-            goal_msg = MotorControl.Goal()
-            goal_msg.command = command
-            goal_msg.distance = float(distance)
-
-            if not self.motor_control_client.wait_for_server(timeout_sec=10.0):
-                self.get_logger().error("Motor action server not available within timeout.")
-                return None
-            self.get_logger().info("Motor action server available.")
-
-            send_goal_future = await self.motor_control_client.send_goal_async(goal_msg)
-            
-            if not send_goal_future.accepted:
-                self.get_logger().warn('Motor control goal rejected')
-                return None
-
-            self.get_logger().info('Motor control goal accepted')
-            return send_goal_future
-
-        except Exception as e:
-            self.get_logger().error(f"Error sending goal to motor server: {str(e)}")
-            return None
-
-    async def get_result_from_motor_server(self, goal_handle):
-        """Gets the result from the motor control action server."""
-        try:
-            result_future = await goal_handle.get_result_async()
-            
-            if not result_future:
-                self.get_logger().error('Motor control action failed')
-                return None
-
-            return result_future.result  # Remove the () since it's not callable
-
-        except Exception as e:
-            self.get_logger().error(f"Error getting result from motor server: {str(e)}")
-            return None
-
-        except Exception as e:
-            self.get_logger().error(f"Error getting result from motor server: {str(e)}")
-            return None
+    def position_callback(self, msg):
+        """Callback for robot position updates"""
+        self.current_position = msg
+        if self.start_position is None:
+            self.start_position = msg
+        self.get_logger().debug(f"Current robot position: x={msg.x}, z={msg.z}, roll={msg.y}")
 
     def process_llm_result(self, llm_result):
-        """
-        Processes the JSON result from the LLM server and extracts the motor command and distance.
-        """
+        """Process the LLM response and extract command information"""
         try:
             if not llm_result.llm_response:
                 self.get_logger().error("Empty response from LLM server")
-                return None, None
+                return None, None, None, None
 
             data = json.loads(llm_result.llm_response)
-            if not data:
-                self.get_logger().error("Empty JSON data from LLM response")
-                return None, None
+            if not data or "command" not in data:
+                self.get_logger().error("Invalid LLM response format")
+                return None, None, None, None
 
-            if "command" not in data:
-                self.get_logger().error("No command found in LLM response")
-                return None, None
+            task_complete = data.get("task_complete", False)
             
-            # data = json.loads(llm_result.llm_response)
             if "MOVE_FORWARD" in data["command"]:
-                motor_command = "MOVE_FORWARD"
-                distance = data.get("forward_distance", 0.0)  # Default distance of 0.0 meters
-                self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
-                return motor_command, distance
-            
-            elif "ROTATE" in data["command"]:
-                motor_command = "ROTATE"
-                distance = data.get("forward_distance", 0.0)  # Default distance of 0.0 meters
-                self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
-                return motor_command, distance
-            
+                return "MOVE_FORWARD", data.get("linear_distance", 0.0), task_complete, data
+            elif "MOVE_BACKWARD" in data["command"]:
+                return "MOVE_FORWARD", data.get("linear_distance", 0.0), task_complete, data
+            elif "ROTATE_CLOCKWISE" in data["command"]:
+                return "ROTATE", data.get("rotate_degree", 0.0), task_complete, data
+            elif "ROTATE_COUNTERCLOCKWISE" in data["command"]:
+                return "ROTATE", data.get("rotate_degree", 0.0), task_complete, data
             elif "WAIT" in data["command"]:
-                motor_command = "WAIT"
-                distance = data.get("forward_distance", 0.0)  # Default distance of 0.0 meters
-                self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
-                return motor_command, distance
+                return "WAIT", 0.0, task_complete, data
             else:
-                self.get_logger().warn(f"Unknown action from LLM: {data['command']}")
-                return None, None
-        except (json.JSONDecodeError, KeyError) as e:
-            self.get_logger().error(f"Error processing LLM result: {e}")
-            return None, None
+                self.get_logger().warn(f"Unknown command: {data['command']}")
+                return None, None, None, None
+
+        except Exception as e:
+            self.get_logger().error(f"Error processing LLM result: {str(e)}")
+            return None, None, None, None
 
 def main(args=None):
     rclpy.init(args=args)

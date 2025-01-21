@@ -7,6 +7,7 @@ import asyncio
 import websockets
 import ssl
 from threading import Thread, Event
+from geometry_msgs.msg import Vector3
 
 class MainController(Node):
     def __init__(self):
@@ -36,10 +37,27 @@ class MainController(Node):
 
         self.current_prompt = None
         self.processing_prompt = False
-        self.last_processed_prompt = None       
+        self.last_processed_prompt = None   
 
+        # Subscriber for pose data
+        self.subscription = self.create_subscription(
+            Vector3,
+            '/robot_position',
+            self.position_callback,
+            2
+        )
+        
+        self.current_position = None
+        self.start_position = None
+        # self.main_logic_ready = True
+    
         # Create the timer without making it async
         self.create_timer(5.0, self.timer_callback)
+
+    # def timer_callback(self):
+    #     """Non-async timer callback that creates and runs the coroutine"""
+    #     if self.main_logic_ready:
+    #         Thread(target=self.main_logic).start()
 
     def timer_callback(self):
         """Non-async timer callback that creates and runs the coroutine"""
@@ -86,6 +104,13 @@ class MainController(Node):
                 self.get_logger().error(f"WebSocket error: {str(e)}. Retrying in 5 seconds...")
                 await asyncio.sleep(5)
 
+    def position_callback(self, msg):
+        """Callback function for processing the /robot_position topic."""
+        self.current_position = msg
+        if self.start_position is None: # if the start position is none, then it has not been initialized.
+            self.start_position = msg
+        self.get_logger().debug(f"Current robot position: x={msg.x}, z={msg.z}, roll={msg.y}")
+
     async def main_logic(self):
         """
         Main logic of the controller:
@@ -94,6 +119,7 @@ class MainController(Node):
         3. Send command to motor control action server.
         """
         try:
+            # self.main_logic_ready = False
             # Check if we have a valid prompt
             if self.processing_prompt or not self.current_prompt:
                 # self.get_logger().debug("No prompt available, skipping main logic loop")
@@ -104,9 +130,17 @@ class MainController(Node):
             
             self.processing_prompt = True
             self.last_processed_prompt = self.current_prompt
+            task_complete = False
+            start_x = round(self.start_position.x, 2)
+            start_y = round(self.start_position.y,2)
+            start_z = round(self.start_position.z, 2)
 
+            robot_position = f"The robots starting position is x:{start_z}, y:{start_x}, z:{start_y}. Your current position is x:{self.current_position.z}, y:{self.current_position.x}, z:{self.current_position.y}"
+            prompt = self.current_prompt + ". " + robot_position
+            
+            # while not task_complete:
             # 1. Send prompt to LLM action server
-            llm_goal_handle = await self.send_goal_to_llm_server(self.current_prompt)
+            llm_goal_handle = await self.send_goal_to_llm_server(prompt)
             if not llm_goal_handle:
                 self.get_logger().error("LLM goal was rejected")
                 self.processing_prompt = False
@@ -121,7 +155,7 @@ class MainController(Node):
             self.get_logger().info(f"LLM Response: {llm_result}")
 
             # 2. Process LLM result
-            motor_command, distance = self.process_llm_result(llm_result)
+            motor_command, distance, task_complete, previous_task = self.process_llm_result(llm_result)
             if not motor_command:
                 self.get_logger().error("Could not determine motor command from LLM result")
                 self.processing_prompt = False
@@ -142,10 +176,14 @@ class MainController(Node):
             else:
                 self.get_logger().info("Motor control action failed")
 
+            if not task_complete:
+                prompt = f"{prompt}. Status: Task Incomplete. Previously performed tasked JSON Object:{json.dumps(previous_task)}"
+
         except Exception as e:
             self.get_logger().error(f"Error in main logic: {str(e)}")
         finally:
             self.processing_prompt = False
+            # self.main_logic_ready = True
 
     async def send_goal_to_llm_server(self, prompt):
         """Sends the prompt to the LLM action server."""
@@ -256,24 +294,37 @@ class MainController(Node):
                 self.get_logger().error("No command found in LLM response")
                 return None, None
             
+            task_complete = data.get("task_complete", False)
+            
             # data = json.loads(llm_result.llm_response)
             if "MOVE_FORWARD" in data["command"]:
                 motor_command = "MOVE_FORWARD"
-                distance = data.get("forward_distance", 0.0)  # Default distance of 0.0 meters
+                distance = data.get("linear_distance", 0.0)  # Default distance of 0.0 meters
                 self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
-                return motor_command, distance
+                return motor_command, distance, task_complete, data
             
-            elif "ROTATE" in data["command"]:
-                motor_command = "ROTATE"
-                distance = data.get("forward_distance", 0.0)  # Default distance of 0.0 meters
+            if "MOVE_BACKWARD" in data["command"]:
+                motor_command = "MOVE_BACKWARD"
+                distance = data.get("linear_distance", 0.0)  # Default distance of 0.0 meters
                 self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
-                return motor_command, distance
+                return motor_command, distance, task_complete, data
+            
+            elif "ROTATE_CLOCKWISE" in data["command"]:
+                motor_command = "ROTATE_CLOCKWISE"
+                distance = data.get("rotate_degree", 0.0)  # Default rotation of 0.0 meters
+                self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
+                return motor_command, distance, task_complete, data
+            
+            elif "ROTATE_COUNTERCLOCKWISE" in data["command"]:
+                motor_command = "ROTATE_COUNTERCLOCKWISE"
+                distance = data.get("rotate_degree", 0.0)  # Default rotation of 0.0 meters
+                self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
+                return motor_command, distance, task_complete, data
             
             elif "WAIT" in data["command"]:
                 motor_command = "WAIT"
-                distance = data.get("forward_distance", 0.0)  # Default distance of 0.0 meters
-                self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
-                return motor_command, distance
+                self.get_logger().info(f"Extracted command: {motor_command}")
+                return motor_command, distance, task_complete, data
             else:
                 self.get_logger().warn(f"Unknown action from LLM: {data['command']}")
                 return None, None

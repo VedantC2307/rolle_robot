@@ -16,6 +16,12 @@
   <depend>websockets</depend>
   <depend>Pillow</depend>
   <depend>openai</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_py</depend>
+  <depend>geometry_msgs</depend>
+  <depend>transforms3d</depend>
+
+
 
   <exec_depend>rclpy</exec_depend>
   <depend>robot_messages</depend>

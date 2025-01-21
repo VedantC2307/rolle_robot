@@ -10,7 +10,8 @@ import time
 from std_msgs.msg import Float32
 from threading import Lock
 import math
-from tf_transformations import euler_from_quaternion
+from geometry_msgs.msg import Vector3
+# from tf_transformations import euler_from_quaternion
 
 class MotorControlNode(Node):
     def __init__(self):
@@ -40,9 +41,17 @@ class MotorControlNode(Node):
             2
         )
 
+        # Publisher for current x,z, and roll
+        self.position_publisher = self.create_publisher(
+           Vector3,
+           '/robot_position',
+           2
+        )
+
         # Constants
         self.SAFE_DISTANCE_THRESHOLD = 0.20  # meters
         self.MOVEMENT_CHECK_RATE = 0.1  # seconds
+        self.PUBLISH_POSITION_RATE = 0.2 # seconds
 
         # State variables
         self.current_pose = None
@@ -62,6 +71,12 @@ class MotorControlNode(Node):
         self.movement_timer = self.create_timer(
             self.MOVEMENT_CHECK_RATE,
             self.movement_control_callback
+        )
+
+        # Create a timer for publishing the position of the robot
+        self.position_timer = self.create_timer(
+            self.PUBLISH_POSITION_RATE,
+            self.publish_current_position
         )
 
         self.get_logger().info("Motor Control Node initialized!")
@@ -104,13 +119,13 @@ class MotorControlNode(Node):
         self.get_logger().info("Received action goal")
         command = goal_handle.request.command
         distance_to_travel = goal_handle.request.distance
-        rotation_angle = goal_handle.request.rotation
+        # rotation_angle = goal_handle.request.rotation
 
         # Set robot direction based on command
-        if command == "FORWARD":
+        if command == "MOVE_FORWARD":
             robot_direction = MEC_STRAIGHT_FORWARD
             self.get_logger().info(f"Command: Moving Forward")
-        elif command == "BACKWARD":
+        elif command == "MOVE_BACKWARD":
             robot_direction = MEC_STRAIGHT_BACKWARD
             self.get_logger().info(f"Command: Moving Backward")
         elif command == "ROTATE_CLOCKWISE":
@@ -133,20 +148,20 @@ class MotorControlNode(Node):
         with self.pose_lock:
             self.start_pose = self.current_pose
             # Set appropriate goal based on command type
-            if command in ["FORWARD", "BACKWARD"]:
+            if command in ["MOVE_FORWARD", "MOVE_BACKWARD"]:
                 self.goal_distance = distance_to_travel
                 self.get_logger().info(f"Starting {command.lower()} motion, target distance: {distance_to_travel}m")
             elif command in ["ROTATE_CLOCKWISE", "ROTATE_COUNTERCLOCKWISE"]:
-                self.goal_rotation = rotation_angle  # For rotation, use angle as the goal
+                self.goal_rotation = distance_to_travel  # For rotation, use angle as the goal
                 self.start_roll = self.quaternion_to_roll(self.current_pose.orientation)
-                self.get_logger().info(f"Starting {command.lower()} rotation, target angle: {rotation_angle} degrees")
+                self.get_logger().info(f"Starting {command.lower()} rotation, target angle: {distance_to_travel} degrees")
             
             self.goal_handle = goal_handle
             self.is_moving = True
         
         try:
-            if command in ["FORWARD", "BACKWARD"]:
-                move_motors(90, 90, 90, 90, robot_direction)
+            if command in ["MOVE_FORWARD", "MOVE_BACKWARD"]:
+                move_motors(95, 95, 95, 95, robot_direction)
             else:  # For rotation commands
                 move_motors(100, 100, 100, 100, robot_direction)
                 
@@ -170,7 +185,7 @@ class MotorControlNode(Node):
                 
                 command = self.goal_handle.request.command if self.goal_handle else None
 
-                if command in ["FORWARD", "BACKWARD"]:
+                if command in ["MOVE_FORWARD", "MOVE_BACKWARD"]:
                     traveled_distance = self.calculate_distance(self.start_pose, self.current_pose)
                 
                     # Publish feedback
@@ -194,7 +209,7 @@ class MotorControlNode(Node):
                 
                 elif command in ["ROTATE_CLOCKWISE", "ROTATE_COUNTERCLOCKWISE"]:
                     current_roll = self.quaternion_to_roll(self.current_pose.orientation)
-                    rotated_angle = round(current_roll - self.start_roll, 2)
+                    rotated_angle = - round(current_roll - self.start_roll, 2) + 5.0
 
                     # Publish feedback
                     if self.goal_handle:
@@ -248,25 +263,32 @@ class MotorControlNode(Node):
 
     def quaternion_to_roll(self, orientation):
         """Convert quaternion to roll (rotation around X-axis) in degrees"""
-        # try:
-        #     t0 = 2.0 * (qw * qx + qy * qz)
-        #     t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
-        #     roll = math.degrees(math.atan2(t0, t1))
-        #     return roll
-        # except Exception as e:
-        #     self.get_logger().error(f"Error in quaternion conversion: {e}")
-        #     return 0.0
         try:
             qx = orientation.x
             qy = orientation.y
             qz = orientation.z
             qw = orientation.w
 
-            roll, _, _ = euler_from_quaternion([qx, qy, qz, qw])
-            return math.degrees(roll)
+            t0 = 2.0 * (qw * qx + qy * qz)
+            t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
+            roll = math.degrees(math.atan2(t0, t1))
+            return roll
         except Exception as e:
             self.get_logger().error(f"Error in quaternion conversion: {e}")
             return 0.0
+
+    def publish_current_position(self):
+        """Publish current x, z, and roll position"""
+        with self.pose_lock:
+            if self.current_pose is not None:
+                current_roll = self.quaternion_to_roll(self.current_pose.orientation)
+                position_msg = Vector3()
+                position_msg.x = self.current_pose.position.x
+                position_msg.z = self.current_pose.position.z
+                position_msg.y = current_roll #using y as it makes sense to read on rviz
+                self.position_publisher.publish(position_msg)
+                self.get_logger().debug(f"Publishing current x:{position_msg.x}, z: {position_msg.z}, roll:{position_msg.y}")
+
 
 def main(args=None):
     rclpy.init(args=args)

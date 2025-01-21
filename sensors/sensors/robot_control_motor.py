@@ -91,7 +91,7 @@ def stop_motors():
 # try:
 #     while True:
 #         print("Straight Forward")
-#         move_motors(100, 100, 100, 100, MEC_ROTATE_CLOCKWISE)
+#         move_motors(100, 100, 100, 100, MEC_STRAIGHT_FORWARD)
 #         time.sleep(1)
 #         stop_motors()
 #         time.sleep(7)

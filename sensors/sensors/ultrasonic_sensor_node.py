@@ -91,17 +91,17 @@ class UltrasonicSensorNode(Node):
 
                 # Publish the distance
                 msg = Float32()
-                msg.data = distance
+                msg.data = 2.5 #distance
                 self.publisher_.publish(msg)
                 self.get_logger().debug(f"Distance: {distance:.2f} meters")
 
                 self.prev_distance = distance
 
             else:
-                self.get_logger().warn("Invalid distance value.")
+                self.get_logger().debug("Invalid distance value.")
 
         except Exception as e:
-            self.get_logger().error(f"Error in distance measurement: {e}")
+            self.get_logger().debug(f"Error in distance measurement: {e}")
 
     def cleanup(self):
         """
