@@ -19,11 +19,6 @@ class LLMImageActionServer(Node):
     def __init__(self):
         super().__init__('llm_image_action_server')
         self.get_logger().info("Started LLM Image Action Server")
-
-        # Load environment variables
-        env_path = os.path.join(os.path.dirname(__file__), ".env")
-        if os.path.exists(env_path):
-           load_dotenv(dotenv_path=env_path)
         
         ip_address = os.getenv("IP_ADDRESS")
 
@@ -54,7 +49,7 @@ class LLMImageActionServer(Node):
         )
 
         # Initialize publisher
-        self.publisher_ = self.create_publisher(String, 'llm_response', 10)
+        # self.publisher_ = self.create_publisher(String, 'llm_response', 10)
 
     def run_async_loop(self):
         asyncio.set_event_loop(self.loop)

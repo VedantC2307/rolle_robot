@@ -7,9 +7,10 @@ import ssl
 import websockets
 import json
 from threading import Thread
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Vector3
 from dotenv import load_dotenv
 import os
+import math
 
 class WebSocketListenerNode(Node):
     def __init__(self):
@@ -28,10 +29,10 @@ class WebSocketListenerNode(Node):
         self.ws_slam_url = f"wss://{ip_address}:8888/xr-slam-client"
 
         # Publisher for pose data
-        self.pose_publisher = self.create_publisher(Pose, '/pose_data', 10)
+        self.pose_publisher = self.create_publisher(Vector3, '/pose_data', 5)
 
         # Start the asyncio WebSocket listener in a separate thread
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.new_event_loop()
 
         # Create and start a thread for running the asyncio loop
         self.websocket_thread = Thread(target=self.run_async_loop, daemon=True)
@@ -114,13 +115,31 @@ class WebSocketListenerNode(Node):
             qz = float(message.get("qz", 0))
             qw = float(message.get("qw", 0))
 
+            roll = self.quaternion_to_roll(qx,qy,qz,qw)
+
             # Log successful extraction
             self.get_logger().debug(f"Successfully extracted pose: x={x}, y={y}, z={z}, qx={qx}, qy={qy}, qz={qz}, qw={qw}")
-            return {"x": x, "y": y, "z": z, "qx": qx, "qy": qy, "qz": qz, "qw": qw}
+            return {"x": z, "y": x, "z": roll,}
 
         except Exception as e:
             self.get_logger().error(f"Error extracting pose: {str(e)}")
             return None
+        
+    def quaternion_to_roll(self, qx,qy,qz,qw):
+        """Convert quaternion to roll (rotation around X-axis) in degrees"""
+        try:
+            qx = qx
+            qy = qy
+            qz = qz
+            qw = qw
+
+            t0 = 2.0 * (qw * qx + qy * qz)
+            t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
+            roll = math.degrees(math.atan2(t0, t1))
+            return roll
+        except Exception as e:
+            self.get_logger().error(f"Error in quaternion conversion: {e}")
+            return 0.0
 
     def publish_pose(self, pose_data):
         """
@@ -129,24 +148,17 @@ class WebSocketListenerNode(Node):
         Parameters:
             pose_data (dict): Pose data extracted from the WebSocket message.
         """
-        msg = Pose()
-        msg.position.x = pose_data["x"]
-        msg.position.y = pose_data["y"]
-        msg.position.z = pose_data["z"]
-        msg.orientation.x = pose_data["qx"]
-        msg.orientation.y = pose_data["qy"]
-        msg.orientation.z = pose_data["qz"]
-        msg.orientation.w = pose_data["qw"]
-
+        msg = Vector3()
+        msg.x = pose_data["x"]
+        msg.y = pose_data["y"]
+        msg.z = pose_data["z"]
         self.pose_publisher.publish(msg)
         self.get_logger().debug("Pose data published to '/pose_data' topic.")
 
 def main(args=None):
     rclpy.init(args=args)
-
     # Create the WebSocket listener node
     node = WebSocketListenerNode()
-
     try:
         # Spin the node to keep it running
         rclpy.spin(node)
@@ -154,7 +166,8 @@ def main(args=None):
         node.get_logger().info("Shutting down WebSocket Listener Node.")
     finally:
         # Shutdown and cleanup
-        node.loop.stop()
+        node.loop.call_soon_threadsafe(node.loop.stop) 
+        # node.loop.stop()
         node.websocket_thread.join()
         node.destroy_node()
         rclpy.shutdown()

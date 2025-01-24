@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>sensors</name>
+  <name>motor_controller</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
   <maintainer email="vedantchoudhary16@gmail.com">vedant</maintainer>
@@ -12,14 +12,7 @@
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
 
-  <depend>rclpy_action</depend>
-  <depend>websockets</depend>
-  <depend>Pillow</depend>
-  <depend>openai</depend>
-
   <depend>geometry_msgs</depend>
-  <depend>transforms3d</depend>
-
   <exec_depend>rclpy</exec_depend>
   <depend>robot_messages</depend>
 
