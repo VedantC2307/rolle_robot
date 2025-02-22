@@ -90,7 +90,7 @@ RAMP_UP_START_PWM = 75
 RAMP_UP_END_PWM = 85
 RAMP_DOWN_START_PWM = 85
 RAMP_DOWN_END_PWM = 70
-RAMP_TIME_MOVE = 0.5 # Seconds
+RAMP_TIME_MOVE = 0.7 # Seconds
 RAMP_TIME_STOP = 0.7
 
 def ramped_move_motors(dircontrol, ramp_time=RAMP_TIME_MOVE):
@@ -103,7 +103,7 @@ def ramped_move_motors(dircontrol, ramp_time=RAMP_TIME_MOVE):
     """
     start_pwm = RAMP_UP_START_PWM
     end_pwm = RAMP_UP_END_PWM
-    num_steps = 50  #Number of steps
+    num_steps = 30  #Number of steps
     dt = ramp_time / num_steps
 
     for i in range(num_steps + 1):  # +1 to include the final value

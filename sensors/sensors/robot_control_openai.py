@@ -2,9 +2,7 @@ import json
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-import base64
-import io
-from PIL import Image
+
 
 class LLMClient:
     def __init__(self, api_key=None, model="gpt-4o-mini", system_prompt = None):

@@ -7,6 +7,7 @@ from robot_messages.action import MotorControl
 from motor_controller.robot_control_motor import ramped_move_motors, ramped_stop_motors, MEC_STRAIGHT_FORWARD, MEC_STRAIGHT_BACKWARD, MEC_ROTATE_CLOCKWISE, MEC_ROTATE_COUNTERCLOCKWISE
 from threading import Lock
 from geometry_msgs.msg import Vector3
+import math
 
 class MotorControlNode(Node):
     def __init__(self):
@@ -98,27 +99,21 @@ class MotorControlNode(Node):
 
     def execute_callback(self, goal_handle):
         """Action execution callback"""
-        goal_handle.accept()
+        # goal_handle.accept()
 
         self.get_logger().info("Received action goal")
         command = goal_handle.request.command
         distance_to_travel = goal_handle.request.distance
         rotation_angle = goal_handle.request.rotation_degrees
 
-        # Set robot direction based on command
-        if command == "MOVE_FORWARD":
-            robot_direction = MEC_STRAIGHT_FORWARD
-            self.get_logger().info(f"Command: Moving Forward")
-        elif command == "MOVE_BACKWARD":
-            robot_direction = MEC_STRAIGHT_BACKWARD
-            self.get_logger().info(f"Command: Moving Backward")
-        elif command == "ROTATE_CLOCKWISE":
-            robot_direction = MEC_ROTATE_CLOCKWISE
-            self.get_logger().info(f"Command: Rotating Clockwise")
-        elif command == "ROTATE_COUNTERCLOCKWISE":
-            robot_direction = MEC_ROTATE_COUNTERCLOCKWISE
-            self.get_logger().info(f"Command: Rotating Counter-clockwise")
-        else:
+        command_map = {
+        "MOVE_FORWARD": MEC_STRAIGHT_FORWARD,
+        "MOVE_BACKWARD": MEC_STRAIGHT_BACKWARD,
+        "ROTATE_CLOCKWISE": MEC_ROTATE_CLOCKWISE,
+        "ROTATE_COUNTERCLOCKWISE": MEC_ROTATE_COUNTERCLOCKWISE
+        }
+
+        if command not in command_map:
             self.get_logger().error(f"Unknown command: {command}")
             goal_handle.abort()
             return MotorControl.Result(success=False)
@@ -129,34 +124,24 @@ class MotorControlNode(Node):
             goal_handle.abort()
             return MotorControl.Result(success=False)
 
-
         # Initialize movement
         with self.pose_lock:
             self.start_pose = self.current_pose
             # Set appropriate goal based on command type
             if command in ["MOVE_FORWARD", "MOVE_BACKWARD"]:
                 self.goal_distance = distance_to_travel
-                
-                self.get_logger().info(f"Starting {command.lower()} motion, target distance: {distance_to_travel}m")
+                self.get_logger().info(f"Starting {command.lower()} motion, target distance: {self.goal_distance}m")
             elif command in ["ROTATE_CLOCKWISE", "ROTATE_COUNTERCLOCKWISE"]:
                 self.goal_rotation = rotation_angle  # For rotation, use angle as the goal
                 self.start_roll = self.current_pose.z
-                self.get_logger().info(f"Starting {command.lower()} rotation, target angle: {distance_to_travel} degrees")
+                self.get_logger().info(f"Starting {command.lower()} rotation, target angle: {self.goal_rotation} degrees")
             
             self.goal_handle = goal_handle
             self.is_moving = True
-        
-        try:
-            if command in ["MOVE_FORWARD", "MOVE_BACKWARD"]:
-                ramped_move_motors(robot_direction)
-            else:  # For rotation commands
-                ramped_move_motors(robot_direction)
-                
-        except Exception as e:
-            self.get_logger().error(f"Error moving motors: {str(e)}")
-            goal_handle.abort()
-            return MotorControl.Result(success=False)
 
+        # ramped_move_motors(command_map[command])
+        # if not self.is_moving:
+        goal_handle.succeed()
         # Return immediately, let timer handle monitoring
         return MotorControl.Result(success=True)
 
@@ -191,7 +176,7 @@ class MotorControlNode(Node):
 
                         # Ensure goal_handle is still valid before marking success
                         if self.goal_handle and self.goal_handle.is_active:
-                            if goal_condition_met:
+                            if self.goal_handle and self.goal_handle.is_active:
                                 self.goal_handle.succeed()  # Explicitly succeed
                                 self.goal_handle = None
                                 self.stop_movement()
@@ -212,11 +197,10 @@ class MotorControlNode(Node):
                         self.stop_movement()
 
                             # Ensure goal_handle is still valid before marking success
-                        if self.goal_handle and self.goal_handle.is_active:
-                            if goal_condition_met:
-                                self.goal_handle.succeed()  # Explicitly succeed
-                                self.goal_handle = None
-                                self.stop_movement()
+                        if self.goal_handle and self.goal_handle.is_active: 
+                            self.goal_handle.succeed()  # Explicitly succeed
+                            self.goal_handle = None
+                            self.stop_movement()
 
             except Exception as e:
                 self.get_logger().error(f"Error in movement control: {str(e)}")
@@ -229,13 +213,12 @@ class MotorControlNode(Node):
     def wait_for_pose_data(self, timeout=5.0):
         """Wait for initial pose data with timeout"""
         start_time = self.get_clock().now().nanoseconds / 1e9
-        while self.current_pose is None and (self.get_clock().now().nanoseconds / 1e9 - start_time < timeout):
+        while self.current_pose is None:
+            if (self.get_clock().now().nanoseconds / 1e9 - start_time >= timeout):
+                self.get_logger().warn("Timeout waiting for pose data")
+                return False
             self.get_logger().warn("Waiting for initial pose data...")
             rclpy.spin_once(self, timeout_sec=0.1)
-
-        if self.current_pose is None:
-            self.get_logger().error("Timeout waiting for pose data")
-            return False
         return True
 
     def calculate_distance(self, start_pose, current_pose):
@@ -244,7 +227,8 @@ class MotorControlNode(Node):
         # x_current = current_pose.x
         # distance = round(x_current - x_start, 2)
         # Distance in meters
-        return current_pose.x - start_pose.x
+        # return current_pose.x - start_pose.x
+        return math.sqrt((current_pose.x - start_pose.x)**2 + (current_pose.y - start_pose.y)**2)
 
     def reset_action_state(self):
         """Reset all action-related state variables"""

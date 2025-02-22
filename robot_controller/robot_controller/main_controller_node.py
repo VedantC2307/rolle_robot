@@ -38,6 +38,7 @@ class MainController(Node):
 
         # Create an asyncio event loop for WebSocket communication
         self.loop = asyncio.new_event_loop()
+        self.speech_loop = asyncio.new_event_loop()
         self.shutdown_event = Event()
 
         # Start WebSocket listener thread
@@ -50,6 +51,7 @@ class MainController(Node):
         self.current_prompt = None
         self.processing_prompt = False
         self.last_processed_prompt = None   
+        self.speech_websocket = None
 
         # In __init__, need to add:
         self.speech_queue = asyncio.Queue()
@@ -62,10 +64,9 @@ class MainController(Node):
         self.create_timer(5.0, self.timer_callback)
 
     def run_speech_loop(self):
-        speech_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(speech_loop)
+        asyncio.set_event_loop(self.speech_loop)
         try:
-            speech_loop.run_until_complete(self.send_to_websocket())
+            self.speech_loop.run_forever()
         except asyncio.CancelledError:
             self.get_logger().info("Speech WebSocket stopped.")
 
@@ -153,12 +154,16 @@ class MainController(Node):
             self.get_logger().error(f"Error sending goal to LLM server: {str(e)}")
             return None
 
-    async def motor_controller_action(self, command, distance):
+    async def motor_controller_action(self, command, value):
         """Sends the command and distance to the motor control action server."""
         try:
             goal_msg = MotorControl.Goal()
             goal_msg.command = command
-            goal_msg.distance = float(distance)
+
+            if command.startswith("ROTATE_"):
+                goal_msg.rotation_degrees = float(value)
+            else:
+                goal_msg.distance = float(value)
 
             if not self.motor_control_client.wait_for_server(timeout_sec=10.0):
                 self.get_logger().error("Motor action server not available within timeout.")
@@ -231,37 +236,7 @@ class MainController(Node):
             self.get_logger().error(f"Error processing LLM result: {e}")
             return None, None, None, None
 
-        
-    async def send_to_websocket(self):
-        """
-        Connect to the WebSocket server and send speech messages.
-        """
-        while not self.shutdown_event.is_set():
-            try:
-                self.get_logger().info(f"Connecting to Speech WebSocket server at {self.websocket_talking_url}...")
-                async with websockets.connect(self.websocket_talking_url, ssl=self.ssl_context) as websocket:
-                    self.get_logger().info("Connected to Speech WebSocket server.")
-                    while not self.shutdown_event.is_set():
-                        try:
-                            # Wait for a message in the queue
-                            speech_data = await self.speech_queue.get()
-                            
-                            # Send the speech data
-                            await websocket.send(json.dumps(speech_data))
-                            self.get_logger().info(f"Sent speech data: {speech_data}")
-                            
-                        except websockets.exceptions.ConnectionClosed:
-                            self.get_logger().warning("Speech WebSocket connection closed. Reconnecting...")
-                            break
-                        except Exception as e:
-                            self.get_logger().error(f"Error sending speech data: {str(e)}")
-                            await asyncio.sleep(1)
-                            
-            except Exception as e:
-                self.get_logger().error(f"Speech WebSocket connection error: {str(e)}. Retrying in 5 seconds...")
-                await asyncio.sleep(5)
-
-    def process_speech(self, speech_text):
+    async def process_speech(self, speech_text):
         """
         Process the speech text and prepare it for sending through WebSocket.
         Returns a formatted dictionary for TTS processing.
@@ -273,16 +248,19 @@ class MainController(Node):
             speech_data = {
                 "text": speech_text,
             }
-            
-            # Add the speech data to the queue
-            if self.loop.is_running():
-                asyncio.run_coroutine_threadsafe(
-                    self.speech_queue.put(speech_data), 
-                    self.loop
-                )
 
-            return speech_data
+            # Connect to websocket if not connected
+            if self.speech_websocket is None: # or self.speech_websocket.closed:
+                self.speech_websocket = await websockets.connect(
+                    self.websocket_talking_url, ssl=self.ssl_context
+                )
             
+            # Send speech data directly
+            await self.speech_websocket.send(json.dumps(speech_data))
+            print("sent speech data")
+            self.get_logger().info(f"Sent speech data: {speech_data}")
+            return speech_data
+        
         except Exception as e:
             self.get_logger().error(f"Error processing speech: {str(e)}")
             return None
@@ -296,10 +274,7 @@ class MainController(Node):
         3. Send command to motor control action server.
         """
         try:
-            # self.main_logic_ready = False
-            # Check if we have a valid prompt
             if self.processing_prompt or not self.current_prompt:
-                # self.get_logger().debug("No prompt available, skipping main logic loop")
                 return
             
             if self.current_prompt == self.last_processed_prompt:
@@ -318,35 +293,41 @@ class MainController(Node):
             self.get_logger().info(f"LLM Response: {llm_response.llm_response}")
 
             
-            # 2. Process LLM result
-            motor_command, distance, previous_task_data, speech = self.process_llm_result(llm_response)
+            # 2. Process LLM result - distance output in cm and deg
+            motor_command, units, previous_task_data, speech = self.process_llm_result(llm_response)
+
+            distance_in_m = units/100
             
             if speech:
-                speech_data = self.process_speech(speech)
+                speech_data = await self.process_speech(speech)
                 if speech_data:
-                    self.get_logger().info(f"Processed speech data: {speech_data}")
-
-            print("motor_command:", motor_command)
-            print("distance:", distance)
-            print("Speech:", speech)
-
-            time.sleep(10000)
+                    self.get_logger().debug(f"Processed speech data: {speech_data}")
 
             if not motor_command:
                 self.get_logger().error("Could not determine motor command from LLM result")
                 self.processing_prompt = False
                 return
+            
+            motor_goal_handle = None
+            
+            if motor_command.startswith("ROTATE_"):
+                motor_goal_handle = await self.motor_controller_action(motor_command, units)
+            elif motor_command.startswith("MOVE_"):
+                motor_goal_handle = await self.motor_controller_action(motor_command, distance_in_m)
+            else:
+                self.get_logger().info("No valid movement command received")
 
-            # Send Goal to motor_controller action server
-            motor_goal_handle = await self.motor_controller_action(motor_command, distance)
-
-            # motor_result = await self.get_result_from_motor_server(motor_goal_handle)
-            if not motor_goal_handle:
-                self.get_logger().error("Failed to get result from motor control server")
-            elif motor_goal_handle.success:
+            if motor_goal_handle.success:
                 self.get_logger().info("Motor control action succeeded")
             else:
                 self.get_logger().info("Motor control action failed")
+
+            # if not motor_goal_handle:
+            #     self.get_logger().error("Failed to get result from motor control server")
+            # elif motor_goal_handle.success:
+            #     self.get_logger().info("Motor control action succeeded")
+            # else:
+            #     self.get_logger().info("Motor control action failed")
 
         except Exception as e:
             self.get_logger().error(f"Error in main logic: {str(e)}")

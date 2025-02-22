@@ -19,13 +19,13 @@ def generate_launch_description():
     )
 
     # Launch motor_control_action_server node
-    # motor_control_node = Node(
-    #     package='sensors',
-    #     executable='motor_control_action_server',
-    #     name='motor_control_action_server',
-    #     output='screen',
-    #     emulate_tty=True
-    # )
+    motor_control_node = Node(
+        package='motor_controller',
+        executable='motor_control_action_server',
+        name='motor_control_action_server',
+        output='screen',
+        emulate_tty=True
+    )
 
     # Launch ultrasonic_sensor node
     # ultrasonic_sensor_node = Node(
@@ -49,5 +49,5 @@ def generate_launch_description():
         slam_node,
         # ultrasonic_sensor_node,
         llm_action_server_node,
-        # motor_control_node
+        motor_control_node
     ])

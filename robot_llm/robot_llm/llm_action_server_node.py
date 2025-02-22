@@ -8,11 +8,10 @@ from robot_messages.action import LLMTrigger
 from std_msgs.msg import String
 import io
 from PIL import Image
-from sensors.robot_control_openai import LLMClient
+from robot_llm.robot_control_openai import LLMClient
 import base64
 import ssl
 from threading import Thread
-from dotenv import load_dotenv
 import os
 import time
 
