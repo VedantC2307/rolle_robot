@@ -11,34 +11,34 @@ def generate_launch_description():
     
     # Launch llm_action_server node
     llm_action_server_node = Node(
-        package='sensors',
-        executable='LLM_action_server',
+        package='robot_llm',
+        executable='llm_action_server',
         name='LLM_action_server',
         output='screen',
         emulate_tty=True
     )
 
     # Launch motor_control_action_server node
-    motor_control_node = Node(
-        package='sensors',
-        executable='motor_control_action_server',
-        name='motor_control_action_server',
-        output='screen',
-        emulate_tty=True
-    )
+    # motor_control_node = Node(
+    #     package='sensors',
+    #     executable='motor_control_action_server',
+    #     name='motor_control_action_server',
+    #     output='screen',
+    #     emulate_tty=True
+    # )
 
     # Launch ultrasonic_sensor node
-    ultrasonic_sensor_node = Node(
-        package='sensors',
-        executable='ultrasonic_sensor',
-        name='ultrasonic_sensor_node',
-        output='screen',
-        emulate_tty=True
-    )
+    # ultrasonic_sensor_node = Node(
+    #     package='sensors',
+    #     executable='ultrasonic_sensor',
+    #     name='ultrasonic_sensor_node',
+    #     output='screen',
+    #     emulate_tty=True
+    # )
 
     # Launch slam_node
     slam_node = Node(
-        package='sensors',
+        package='robot_slam',
         executable='slam_node',
         name='slam_node',
         output='screen',
@@ -47,7 +47,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         slam_node,
-        ultrasonic_sensor_node,
+        # ultrasonic_sensor_node,
         llm_action_server_node,
-        motor_control_node
+        # motor_control_node
     ])

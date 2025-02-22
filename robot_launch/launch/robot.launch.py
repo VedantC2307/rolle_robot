@@ -9,7 +9,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def generate_launch_description():
     # Get the share directory for the 'sensors' and 'launcher' package
-    sensors_pkg_share = get_package_share_directory('sensors')
+    # sensors_pkg_share = get_package_share_directory('sensors')
     robot_launch_pkg_share = get_package_share_directory('robot_launch')
 
     # Define the launch description
@@ -24,8 +24,8 @@ def generate_launch_description():
 
     # Launch main_controller node
     main_controller_node = Node(
-        package='sensors',
-        executable='testing',
+        package='robot_controller',
+        executable='main_controller',
         name='main_controller',
         output='screen',
         emulate_tty=True 

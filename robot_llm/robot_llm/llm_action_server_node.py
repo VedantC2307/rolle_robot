@@ -8,12 +8,13 @@ from robot_messages.action import LLMTrigger
 from std_msgs.msg import String
 import io
 from PIL import Image
-from sensors.robot_control_openai import LLMClient  # Assuming you have this
+from sensors.robot_control_openai import LLMClient
 import base64
 import ssl
 from threading import Thread
 from dotenv import load_dotenv
 import os
+import time
 
 class LLMImageActionServer(Node):
     def __init__(self):
@@ -93,6 +94,9 @@ class LLMImageActionServer(Node):
             image = image.convert("RGB")
             rotated_frame = image.rotate(90, expand=True)
 
+            # Save the image to file
+            self.save_image_to_file(rotated_frame)
+
             buffered = io.BytesIO()
             #save as jpeg
             rotated_frame.save(buffered, format="JPEG")
@@ -102,10 +106,26 @@ class LLMImageActionServer(Node):
         except Exception as e:
             self.get_logger().error(f"Error capturing frame {e}")
             return None
+        
+    def save_image_to_file(self, image):
+        """
+        Saves the given PIL image to disk using a timestamp-based filename.
+        """
+        try:
+            # Create a directory called "saved_images" in the current working directory if it doesn't exist
+            save_dir = os.path.join(os.getcwd(), "saved_images")
+            os.makedirs(save_dir, exist_ok=True)
+            # Generate a filename based on the current timestamp
+            filename = f"image_{int(time.time())}.jpeg"
+            file_path = os.path.join(save_dir, filename)
+            image.save(file_path, format="JPEG")
+            self.get_logger().info(f"Image saved to {file_path}")
+        except Exception as e:
+            self.get_logger().error(f"Error saving image to file: {e}")
 
     async def execute_callback(self, goal_handle):
         """Executes the action when goal is received."""
-        self.get_logger().info(f"Executing action with goal: {goal_handle.request.prompt}")
+        self.get_logger().info(f"Triggering LLM with Goal...")
 
         feedback_msg = LLMTrigger.Feedback()
         result = LLMTrigger.Result()
@@ -126,7 +146,7 @@ class LLMImageActionServer(Node):
         try:
             # Use rclpy.get_global_executor() to run in a thread from ROS 2's thread pool:
             llm_response = self.llm_client.detect_object_with_gpt(b64_image, prompt)
-            self.get_logger().info(f"llm_response:{llm_response}")
+            # self.get_logger().info(f"llm_response:{llm_response}")
         except Exception as e:
             self.get_logger().error(f"Error calling LLM: {e}")
             result.success = False
