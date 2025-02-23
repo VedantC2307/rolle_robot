@@ -140,7 +140,7 @@ class MotorControlNode(Node):
             self.is_moving = True
 
         # ramped_move_motors(command_map[command])
-        # if not self.is_moving:
+
         goal_handle.succeed()
         # Return immediately, let timer handle monitoring
         return MotorControl.Result(success=True)
@@ -167,7 +167,7 @@ class MotorControlNode(Node):
                         self.goal_handle.publish_feedback(feedback)
                         self.get_logger().info(feedback.status)
 
-                    safe_travel_distance = traveled_distance + 0.2
+                    safe_travel_distance = traveled_distance + 0.3
 
                     # Check if we've reached the goal
                     if safe_travel_distance >= self.goal_distance:
@@ -183,7 +183,14 @@ class MotorControlNode(Node):
                 
                 elif command in ["ROTATE_CLOCKWISE", "ROTATE_COUNTERCLOCKWISE"]:
                     current_roll = self.current_pose.z
-                    rotated_angle = - round(current_roll - self.start_roll, 2) + 5.0
+                    # rotated_angle = - round(current_roll - self.start_roll, 2) + 5.0
+
+                    if command == "ROTATE_CLOCKWISE":
+                        # For clockwise rotation, assuming the roll decreases:
+                        rotated_angle = round(self.start_roll - current_roll, 2) + 7.0
+                    else:  # ROTATE_COUNTERCLOCKWISE
+                        # For anticlockwise rotation, assuming the roll increases:
+                        rotated_angle = round(current_roll - self.start_roll, 2) + 7.0
 
                     # Publish feedback
                     if self.goal_handle:
@@ -223,11 +230,6 @@ class MotorControlNode(Node):
 
     def calculate_distance(self, start_pose, current_pose):
         """Calculate the distance traveled along the z-axis"""
-        # x_start = start_pose.x
-        # x_current = current_pose.x
-        # distance = round(x_current - x_start, 2)
-        # Distance in meters
-        # return current_pose.x - start_pose.x
         return math.sqrt((current_pose.x - start_pose.x)**2 + (current_pose.y - start_pose.y)**2)
 
     def reset_action_state(self):

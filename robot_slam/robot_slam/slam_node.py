@@ -11,6 +11,7 @@ from geometry_msgs.msg import Vector3
 from dotenv import load_dotenv
 import os
 import math
+from robot_controller import config
 
 class WebSocketListenerNode(Node):
     def __init__(self):
@@ -23,7 +24,7 @@ class WebSocketListenerNode(Node):
         self.get_logger().info("WebSocket Position Listener Node initialized!")
 
         # Use the IP address from the environment or default
-        ip_address = os.getenv("IP_ADDRESS")
+        ip_address =  config.IP_ADDRESS # os.getenv("IP_ADDRESS")
 
         # WebSocket URL
         self.ws_slam_url = f"wss://{ip_address}:8888/xr-slam-client"

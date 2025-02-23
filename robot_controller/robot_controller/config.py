@@ -14,4 +14,3 @@ def get_local_ip():
 
 OPEN_API_KEY = "your_api_key_here"
 IP_ADDRESS = get_local_ip()
-PORT = 4000

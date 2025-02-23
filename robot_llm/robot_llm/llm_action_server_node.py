@@ -14,13 +14,14 @@ import ssl
 from threading import Thread
 import os
 import time
+from robot_controller import config
 
 class LLMImageActionServer(Node):
     def __init__(self):
         super().__init__('llm_image_action_server')
         self.get_logger().info("Started LLM Image Action Server")
         
-        ip_address = os.getenv("IP_ADDRESS")
+        ip_address = config.IP_ADDRESS
 
         websocket_uri = f"wss://{ip_address}:8888/video-stream"
         self.declare_parameter('websocket_uri', websocket_uri)

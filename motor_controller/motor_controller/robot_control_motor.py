@@ -86,7 +86,7 @@ def stop_motors():
     for pin in motor_pins:
         GPIO.output(pin, 0)
 
-RAMP_UP_START_PWM = 75
+RAMP_UP_START_PWM = 70
 RAMP_UP_END_PWM = 85
 RAMP_DOWN_START_PWM = 85
 RAMP_DOWN_END_PWM = 70
@@ -136,28 +136,28 @@ def ramped_stop_motors(ramp_time=RAMP_TIME_STOP):
 # if __name__ == '__main__':  #Added to prevent auto running when imported
 #     try:
 #         # Example parameters
-#         # dircontrol = MEC_STRAIGHT_FORWARD
-#         # move_motors(65, 65, 65, 65, MEC_STRAIGHT_BACKWARD)
-#         # time.sleep(2)
-#         # stop_motors()
-#         # time.sleep(7)
-
-#         # print("Ramping up...")
-#         # ramped_move_motors(dircontrol)  # Ramp up to move
-
-#         # # time.sleep(2)  #Move at the sped for two seconds
-#         # # stop_motors()
-
-#         # print("Ramping down...")
-#         # ramped_stop_motors()  # Ramp down to stop
-
-#         # print("Stopped")
-
-#     except KeyboardInterrupt:
-#         print("Exiting...")
-#     finally:
+#         dircontrol = MEC_STRAIGHT_FORWARD
+#         move_motors(65, 65, 65, 65, MEC_STRAIGHT_BACKWARD)
+#         time.sleep(1)
 #         stop_motors()
-#         GPIO.cleanup()
+#         time.sleep(7)
+
+        # print("Ramping up...")
+        # ramped_move_motors(dircontrol)  # Ramp up to move
+
+        # # time.sleep(2)  #Move at the sped for two seconds
+        # # stop_motors()
+
+        # print("Ramping down...")
+        # ramped_stop_motors()  # Ramp down to stop
+
+        # print("Stopped")
+
+    # except KeyboardInterrupt:
+    #     print("Exiting...")
+    # finally:
+    #     stop_motors()
+    #     GPIO.cleanup()
 
 
 # Code to test Movement
