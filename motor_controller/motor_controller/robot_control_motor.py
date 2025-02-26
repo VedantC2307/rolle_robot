@@ -86,12 +86,12 @@ def stop_motors():
     for pin in motor_pins:
         GPIO.output(pin, 0)
 
-RAMP_UP_START_PWM = 70
-RAMP_UP_END_PWM = 85
-RAMP_DOWN_START_PWM = 85
-RAMP_DOWN_END_PWM = 70
-RAMP_TIME_MOVE = 0.7 # Seconds
-RAMP_TIME_STOP = 0.7
+RAMP_UP_START_PWM = 80
+RAMP_UP_END_PWM = 90
+RAMP_DOWN_START_PWM = 70
+RAMP_DOWN_END_PWM = 50
+RAMP_TIME_MOVE = 0.5 # Seconds
+RAMP_TIME_STOP = 0.2
 
 def ramped_move_motors(dircontrol, ramp_time=RAMP_TIME_MOVE):
     """
@@ -103,7 +103,7 @@ def ramped_move_motors(dircontrol, ramp_time=RAMP_TIME_MOVE):
     """
     start_pwm = RAMP_UP_START_PWM
     end_pwm = RAMP_UP_END_PWM
-    num_steps = 30  #Number of steps
+    num_steps = 40  #Number of steps
     dt = ramp_time / num_steps
 
     for i in range(num_steps + 1):  # +1 to include the final value
@@ -142,22 +142,22 @@ def ramped_stop_motors(ramp_time=RAMP_TIME_STOP):
 #         stop_motors()
 #         time.sleep(7)
 
-        # print("Ramping up...")
-        # ramped_move_motors(dircontrol)  # Ramp up to move
+#         # print("Ramping up...")
+#         # ramped_move_motors(dircontrol)  # Ramp up to move
 
-        # # time.sleep(2)  #Move at the sped for two seconds
-        # # stop_motors()
+#         # time.sleep(2)  #Move at the sped for two seconds
+#         # stop_motors()
 
-        # print("Ramping down...")
-        # ramped_stop_motors()  # Ramp down to stop
+#         print("Ramping down...")
+#         ramped_stop_motors()  # Ramp down to stop
 
-        # print("Stopped")
+#         print("Stopped")
 
-    # except KeyboardInterrupt:
-    #     print("Exiting...")
-    # finally:
-    #     stop_motors()
-    #     GPIO.cleanup()
+#     except KeyboardInterrupt:
+#         print("Exiting...")
+#     finally:
+#         stop_motors()
+#         GPIO.cleanup()
 
 
 # Code to test Movement

@@ -206,10 +206,10 @@ class MainController(Node):
                 self.get_logger().error("Empty JSON data from LLM response")
                 return None, None, None, None
 
-            command_str = data.get("command", "")
-            if not command_str:
-                self.get_logger().error("No command found in LLM response")
-                return None, None, None, None
+            command_str = data.get("command")
+            # if not command_str:
+            #     self.get_logger().error("No command found in LLM response")
+            #     return None
 
             # Set a default value for robot speech if not provided
             robot_speech = data.get("description", " ")
@@ -296,17 +296,20 @@ class MainController(Node):
             # 2. Process LLM result - distance output in cm and deg
             motor_command, units, previous_task_data, speech = self.process_llm_result(llm_response)
 
-            distance_in_m = units/100
-            
+            # Process speech regardless of whether there's a movement command
             if speech:
                 speech_data = await self.process_speech(speech)
                 if speech_data:
                     self.get_logger().debug(f"Processed speech data: {speech_data}")
 
+            # If there's no motor command, we're done after processing speech
             if not motor_command:
-                self.get_logger().error("Could not determine motor command from LLM result")
+                self.get_logger().info("No movement command to execute")
                 self.processing_prompt = False
                 return
+
+            # Process movement command if present
+            distance_in_m = units/100 if units is not None else 0
             
             motor_goal_handle = None
             
@@ -317,17 +320,10 @@ class MainController(Node):
             else:
                 self.get_logger().info("No valid movement command received")
 
-            if motor_goal_handle.success:
+            if motor_goal_handle and motor_goal_handle.success:
                 self.get_logger().info("Motor control action succeeded")
             else:
-                self.get_logger().info("Motor control action failed")
-
-            # if not motor_goal_handle:
-            #     self.get_logger().error("Failed to get result from motor control server")
-            # elif motor_goal_handle.success:
-            #     self.get_logger().info("Motor control action succeeded")
-            # else:
-            #     self.get_logger().info("Motor control action failed")
+                self.get_logger().info("Motor control action failed or not executed")
 
         except Exception as e:
             self.get_logger().error(f"Error in main logic: {str(e)}")

@@ -139,7 +139,7 @@ class MotorControlNode(Node):
             self.goal_handle = goal_handle
             self.is_moving = True
 
-        # ramped_move_motors(command_map[command])
+        ramped_move_motors(command_map[command])
 
         goal_handle.succeed()
         # Return immediately, let timer handle monitoring
@@ -198,7 +198,7 @@ class MotorControlNode(Node):
                         feedback.status = f"Rotated: {rotated_angle:.2f} degrees"
                         self.goal_handle.publish_feedback(feedback)
                         self.get_logger().info(feedback.status)
-
+                    safe_rotation_angle = rotated_angle + 20.0
                     if rotated_angle >= round(self.goal_rotation, 1): # Absolute value for direction agnostic
                         self.get_logger().info(f"Target rotation {self.goal_rotation:.2f} degrees reached")
                         self.stop_movement()
