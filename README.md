@@ -33,7 +33,7 @@ The following diagram illustrates the core components and their interactions:
 
 ## Robot In Action
 
-[Demo video](https://drive.google.com/file/d/1yeW_lrPELUinpvE9hL_5ak9DDO4IZMS9/view?usp=drive_link](https://youtu.be/FYqDDZrb-XY)
+[Demo video](https://youtu.be/FYqDDZrb-XY)
 
 
 ## Ongoing Work
