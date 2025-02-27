@@ -1,10 +1,11 @@
-# Cutie: Meccanum Wheel LLM Controlled Robot
+# Roll-E: Meccanum Wheel LLM Controlled Robot
 ![Robot](resources/robot.jpg)
+
 This project explores integrating large language models (LLMs) with mobile robotics, enabling natural language interaction, visual scene understanding, and localization. While currently implemented on a mobile robot, the approach is adaptable to various robotic platforms.
 
 ## Overview
 🤖 **What if your robot had its own brain?**  
-Cutie is designed to combine LLM-based reasoning with real-world robotics, allowing for natural language control, autonomous movement, and basic task execution. An android smartphone serves as the robot’s sensor hub, providing:
+Roll-E is designed to combine LLM-based reasoning with real-world robotics, allowing for natural language control, autonomous movement, and basic task execution. An android smartphone serves as the robot’s sensor hub, providing:
 
 - **RGB Camera Data** for visual processing
 - **WebXR-Based Position Tracking** for navigation
