@@ -1,11 +1,11 @@
 # Request
-string prompt  # Prompt from user
+string prompt     # Prompt from user
 
 ---
 # Response
 bool success         # True if the action succeeded, false otherwise
 string message       # A message indicating the success or error status
-string llm_response   # The JSON object returned from the LLM (as a string)
+string llm_response  # The JSON object returned from the LLM (as a string)
 
 ---
 # Feedback

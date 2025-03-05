@@ -21,6 +21,8 @@ setup(
     entry_points={
         'console_scripts': [
             'slam_node = robot_slam.slam_node:main',
+            'base64_camera_data_node = robot_slam.camera_data_node:main',
+            'robot_speech_node = robot_slam.robot_speech_node:main',
         ],
     },
 )

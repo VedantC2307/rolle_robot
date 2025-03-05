@@ -1,35 +1,27 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from robot_messages.action import LLMTrigger, MotorControl
+from robot_messages.action import LLMTrigger
 import json
 import asyncio
 import websockets
 import ssl
 from threading import Thread, Event
 from robot_controller import config
-import time
 
 class MainController(Node):
     def __init__(self):
-
         super().__init__('main_controller')
         self.get_logger().info("Main Controller Node Started")
 
         # Action Clients
         self.llm_action_client = ActionClient(self, LLMTrigger, 'llm_interaction')
-        self.motor_control_client = ActionClient(self, MotorControl, 'motor_control')
 
-        # Use the IP address from the environment or default
+        # Setup websocket to receive prompt
         ip_address = config.IP_ADDRESS
-
-        # Setup websocket to receive speech
         websocket_prompt_uri = f"wss://{ip_address}:4000/transcription"
         self.declare_parameter('websocket_prompt_uri', websocket_prompt_uri)
         self.websocket_prompt_uri = self.get_parameter('websocket_prompt_uri').get_parameter_value().string_value
-
-        # Setup websocket to send speech
-        self.websocket_talking_url = f"wss://{ip_address}:8888/tts"
 
         # Set up SSL context
         self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -38,42 +30,18 @@ class MainController(Node):
 
         # Create an asyncio event loop for WebSocket communication
         self.loop = asyncio.new_event_loop()
-        self.speech_loop = asyncio.new_event_loop()
         self.shutdown_event = Event()
 
         # Start WebSocket listener thread
         self.websocket_thread = Thread(target=self.run_async_loop, daemon=True)
         self.websocket_thread.start()
 
-        self.speech_websocket_thread = Thread(target=self.run_speech_loop, daemon=True)
-        self.speech_websocket_thread.start()
-
         self.current_prompt = None
         self.processing_prompt = False
-        self.last_processed_prompt = None   
-        self.speech_websocket = None
+        self.last_processed_prompt = None
 
-        # In __init__, need to add:
-        self.speech_queue = asyncio.Queue()
-
-        self.current_position = None
-        self.start_position = None
-        # self.main_logic_ready = True
-    
-        # Create the timer without making it async
-        self.create_timer(5.0, self.timer_callback)
-
-    def run_speech_loop(self):
-        asyncio.set_event_loop(self.speech_loop)
-        try:
-            self.speech_loop.run_forever()
-        except asyncio.CancelledError:
-            self.get_logger().info("Speech WebSocket stopped.")
-
-    def timer_callback(self):
-        """Non-async timer callback that creates and runs the coroutine"""
-        if self.loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.main_logic(), self.loop)
+        # Create timer for prompt processing
+        self.create_timer(1.0, self.timer_callback)
 
     def run_async_loop(self):
         asyncio.set_event_loop(self.loop)
@@ -85,9 +53,7 @@ class MainController(Node):
             self.loop.close()
 
     async def listen_to_websocket(self):
-        """
-        Connect to the WebSocket server and continuously listen for prompt updates.
-        """
+        """Connect to the WebSocket server and continuously listen for prompt updates."""
         while not self.shutdown_event.is_set():
             try:
                 self.get_logger().info(f"Connecting to WebSocket server at {self.websocket_prompt_uri}...")
@@ -97,13 +63,13 @@ class MainController(Node):
                         if self.shutdown_event.is_set():
                             break
                         try:
-                            # self.get_logger().debug(f"Raw message received: {message}")
                             data = json.loads(message)
-                            if 'message' in data and 'prompt' in data['message']:
-                                self.current_prompt = data['message']['prompt']
+                            # Updated JSON parsing to match the correct format
+                            if data['type'] == 'transcription' and 'data' in data and 'prompt' in data['data']:
+                                self.current_prompt = data['data']['prompt']
                                 self.get_logger().info(f"Received new prompt: {self.current_prompt}")
                             else:
-                                self.get_logger().warning("Received message without prompt data.")
+                                self.get_logger().warning(f"Unexpected message format: {data}")
                         except json.JSONDecodeError:
                             self.get_logger().error(f"Invalid JSON received: {message}")
                         except Exception as e:
@@ -114,27 +80,27 @@ class MainController(Node):
             except Exception as e:
                 self.get_logger().error(f"WebSocket error: {str(e)}. Retrying in 5 seconds...")
                 await asyncio.sleep(5)
-            
+
+    def timer_callback(self):
+        """Non-async timer callback that creates and runs the coroutine"""
+        if self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.main_logic(), self.loop)
 
     async def call_llm_action_server(self, prompt):
         """Sends the prompt to the LLM action server."""
         try:
-            # Ensure prompt is a string and not None
             if not isinstance(prompt, str) or not prompt.strip():
-                self.get_logger().error("Invalid prompt received. Prompt must be a non-empty string.")
+                self.get_logger().error("Invalid prompt received")
                 return None
 
             goal_msg = LLMTrigger.Goal()
             goal_msg.prompt = prompt
-            self.get_logger().info(f"Sending prompt to LLM action server: {prompt}")
+            self.get_logger().info(f"Sending prompt to LLM action server")
 
-            # Wait for server without await
             if not self.llm_action_client.wait_for_server(timeout_sec=10.0):
-                self.get_logger().error("LLM action server not available within timeout.")
+                self.get_logger().error("LLM action server not available")
                 return None
-            self.get_logger().info("LLM action server available.")
 
-            # Send goal asynchronously
             send_goal_future = await self.llm_action_client.send_goal_async(goal_msg)
             
             if not send_goal_future.accepted:
@@ -142,202 +108,54 @@ class MainController(Node):
                 return None
             
             result_future = await send_goal_future.get_result_async()
-            
-            if not result_future:
-                self.get_logger().error('LLM action failed')
-                return None
-            
-            self.get_logger().info('LLM goal accepted')
-            return result_future.result
+            return result_future.result if result_future else None
 
         except Exception as e:
             self.get_logger().error(f"Error sending goal to LLM server: {str(e)}")
             return None
 
-    async def motor_controller_action(self, command, value):
-        """Sends the command and distance to the motor control action server."""
-        try:
-            goal_msg = MotorControl.Goal()
-            goal_msg.command = command
-
-            if command.startswith("ROTATE_"):
-                goal_msg.rotation_degrees = float(value)
-            else:
-                goal_msg.distance = float(value)
-
-            if not self.motor_control_client.wait_for_server(timeout_sec=10.0):
-                self.get_logger().error("Motor action server not available within timeout.")
-                return None
-            self.get_logger().info("Motor action server available.")
-
-            send_goal_future = await self.motor_control_client.send_goal_async(goal_msg)
-            
-            if not send_goal_future.accepted:
-                self.get_logger().warn('Motor control goal rejected')
-                return None
-
-            self.get_logger().info('Motor control goal accepted')
-
-            result_future = await send_goal_future.get_result_async()
-            
-            if not result_future:
-                self.get_logger().error('Motor control action failed')
-                return None
-
-            return result_future.result
-            
-        except Exception as e:
-            self.get_logger().error(f"Error sending goal to motor server: {str(e)}")
-            return None
-
-    def process_llm_result(self, llm_result):
-        """
-        Processes the JSON result from the LLM server and extracts the motor command, distance,
-        the raw data, and a robot speech string (if provided).
-        """
-        try:
-            response = llm_result.llm_response
-            if not response:
-                self.get_logger().error("Empty response from LLM server")
-                return None, None, None, None
-
-            data = json.loads(response)
-            if not data:
-                self.get_logger().error("Empty JSON data from LLM response")
-                return None, None, None, None
-
-            command_str = data.get("command")
-            # if not command_str:
-            #     self.get_logger().error("No command found in LLM response")
-            #     return None
-
-            # Set a default value for robot speech if not provided
-            robot_speech = data.get("description", " ")
-
-            # Define mapping of command substrings to (motor_command, distance_key)
-            command_map = {
-                "MOVE_FORWARD": ("MOVE_FORWARD", "linear_distance"),
-                "MOVE_BACKWARD": ("MOVE_BACKWARD", "linear_distance"),
-                "ROTATE_CLOCKWISE": ("ROTATE_CLOCKWISE", "rotate_degree"),
-                "ROTATE_COUNTERCLOCKWISE": ("ROTATE_COUNTERCLOCKWISE", "rotate_degree"),
-                "WAIT": ("WAIT", None),
-            }
-
-            for key, (motor_command, distance_key) in command_map.items():
-                if key in command_str:
-                    distance = data.get(distance_key, 0.0) if distance_key else 0.0
-                    self.get_logger().info(f"Extracted command: {motor_command}, distance: {distance}")
-                    return motor_command, distance, data, robot_speech
-
-            self.get_logger().warn(f"Unknown action from LLM: {command_str}")
-            return None, None, data, robot_speech
-
-        except (json.JSONDecodeError, KeyError) as e:
-            self.get_logger().error(f"Error processing LLM result: {e}")
-            return None, None, None, None
-
-    async def process_speech(self, speech_text):
-        """
-        Process the speech text and prepare it for sending through WebSocket.
-        Returns a formatted dictionary for TTS processing.
-        """
-        try:
-            if not speech_text:
-                return None
-                
-            speech_data = {
-                "text": speech_text,
-            }
-
-            # Connect to websocket if not connected
-            if self.speech_websocket is None: # or self.speech_websocket.closed:
-                self.speech_websocket = await websockets.connect(
-                    self.websocket_talking_url, ssl=self.ssl_context
-                )
-            
-            # Send speech data directly
-            await self.speech_websocket.send(json.dumps(speech_data))
-            print("sent speech data")
-            self.get_logger().info(f"Sent speech data: {speech_data}")
-            return speech_data
-        
-        except Exception as e:
-            self.get_logger().error(f"Error processing speech: {str(e)}")
-            return None
-
-    
     async def main_logic(self):
-        """
-        Main logic of the controller:
-        1. Send prompt to LLM action server.
-        2. Process LLM result.
-        3. Send command to motor control action server.
-        """
+        """Process new prompts and send to LLM"""
         try:
-            if self.processing_prompt or not self.current_prompt:
+            if not self.current_prompt:
                 return
             
-            if self.current_prompt == self.last_processed_prompt:
-                return
+            # Log current state for debugging
+            self.get_logger().debug(f"Processing state - Current: {self.current_prompt}, Last: {self.last_processed_prompt}, Processing: {self.processing_prompt}")
             
-            self.processing_prompt = True
-            self.last_processed_prompt = self.current_prompt
-
-            prompt = self.current_prompt
-
-            llm_response = await self.call_llm_action_server(prompt)
-
-            if not llm_response.success:
-                self.get_logger().info("Error printing response")
+            # Only process if we have a new prompt and not currently processing
+            if not self.processing_prompt and self.current_prompt != self.last_processed_prompt:
+                self.processing_prompt = True
+                current_prompt = self.current_prompt  # Store current prompt to process
                 
-            self.get_logger().info(f"LLM Response: {llm_response.llm_response}")
+                self.get_logger().info(f'Processing new prompt: {current_prompt}')
+                llm_response = await self.call_llm_action_server(prompt=current_prompt)
 
-            
-            # 2. Process LLM result - distance output in cm and deg
-            motor_command, units, previous_task_data, speech = self.process_llm_result(llm_response)
-
-            # Process speech regardless of whether there's a movement command
-            if speech:
-                speech_data = await self.process_speech(speech)
-                if speech_data:
-                    self.get_logger().debug(f"Processed speech data: {speech_data}")
-
-            # If there's no motor command, we're done after processing speech
-            if not motor_command:
-                self.get_logger().info("No movement command to execute")
-                self.processing_prompt = False
-                return
-
-            # Process movement command if present
-            distance_in_m = units/100 if units is not None else 0
-            
-            motor_goal_handle = None
-            
-            if motor_command.startswith("ROTATE_"):
-                motor_goal_handle = await self.motor_controller_action(motor_command, units)
-            elif motor_command.startswith("MOVE_"):
-                motor_goal_handle = await self.motor_controller_action(motor_command, distance_in_m)
-            else:
-                self.get_logger().info("No valid movement command received")
-
-            if motor_goal_handle and motor_goal_handle.success:
-                self.get_logger().info("Motor control action succeeded")
-            else:
-                self.get_logger().info("Motor control action failed or not executed")
+                if llm_response and llm_response.success:
+                    self.get_logger().info(f"LLM Response: {llm_response.llm_response}")
+                    # Only update last processed prompt if successful
+                    self.last_processed_prompt = current_prompt
+                else:
+                    self.get_logger().error("Failed to get LLM response")
+                    # Reset processing state to allow retry
+                    self.last_processed_prompt = None
 
         except Exception as e:
             self.get_logger().error(f"Error in main logic: {str(e)}")
+            self.last_processed_prompt = None  # Reset on error to allow retry
         finally:
+            # Always reset processing flag
             self.processing_prompt = False
+            self.get_logger().debug("Main logic cycle completed")
 
-    def __del__(self):
-        """Cleanup method to ensure proper shutdown"""
+    def destroy_node(self):
+        """Cleanup method"""
         self.shutdown_event.set()
-        if hasattr(self, 'prompt_websocket_thread'):
-            self.listen_to_websocket.join(timeout=1)
-        if hasattr(self, 'speech_websocket_thread'):
-            self.send_to_websocket_.join(timeout=1)
-
+        if hasattr(self, 'loop') and self.loop.is_running():
+            self.loop.stop()
+        if hasattr(self, 'websocket_thread'):
+            self.websocket_thread.join(timeout=1)
+        super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)

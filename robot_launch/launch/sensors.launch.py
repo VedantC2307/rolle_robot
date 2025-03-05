@@ -18,23 +18,13 @@ def generate_launch_description():
         emulate_tty=True
     )
 
-    # Launch motor_control_action_server node
     motor_control_node = Node(
         package='motor_controller',
-        executable='motor_control_action_server',
-        name='motor_control_action_server',
+        executable='motor_control_node',
+        name='Motor_Control_Node',
         output='screen',
         emulate_tty=True
     )
-
-    # Launch ultrasonic_sensor node
-    # ultrasonic_sensor_node = Node(
-    #     package='sensors',
-    #     executable='ultrasonic_sensor',
-    #     name='ultrasonic_sensor_node',
-    #     output='screen',
-    #     emulate_tty=True
-    # )
 
     # Launch slam_node
     slam_node = Node(
@@ -45,9 +35,27 @@ def generate_launch_description():
         emulate_tty=True
     )
 
+    # Base64 Camera Node
+    camera_node = Node(
+        package='robot_slam',
+        executable='base64_camera_data_node',
+        name='camera_data_node',
+        output='screen',
+        emulate_tty=True
+    )
+
+    # Robot Speech Node
+    speech_node = Node(
+        package='robot_slam',
+        executable='robot_speech_node',
+        name='robot_speech_node',
+        output='screen',
+        emulate_tty=True
+    )
     return LaunchDescription([
         slam_node,
-        # ultrasonic_sensor_node,
+        camera_node,
+        speech_node,
+        motor_control_node,
         llm_action_server_node,
-        motor_control_node
     ])

@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'motor_controller'
+package_name = 'robot_vr_controller'
 
 setup(
     name=package_name,
@@ -10,18 +10,17 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-    ],
+            ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='vedant',
     maintainer_email='vedantchoudhary16@gmail.com',
-    description='TODO: Package description',
+    description='VR controller node for robot control',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # 'motor_control_action_server = motor_controller.motor_control_action_node:main',
-            'motor_control_node = motor_controller.motor_control_node:main',
+            'vr_control_node = robot_vr_controller.vr_control_node:main',
         ],
     },
 )

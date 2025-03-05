@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'motor_controller'
+package_name = 'joy_control'
 
 setup(
     name=package_name,
@@ -18,10 +18,10 @@ setup(
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
+    
     entry_points={
         'console_scripts': [
-            # 'motor_control_action_server = motor_controller.motor_control_action_node:main',
-            'motor_control_node = motor_controller.motor_control_node:main',
+            'joystick_control_node = joy_control.joystick_control_node:main',
         ],
     },
 )

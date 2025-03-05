@@ -199,7 +199,7 @@ class MotorControlNode(Node):
                         self.goal_handle.publish_feedback(feedback)
                         self.get_logger().info(feedback.status)
                     safe_rotation_angle = rotated_angle + 20.0
-                    if rotated_angle >= round(self.goal_rotation, 1): # Absolute value for direction agnostic
+                    if safe_rotation_angle >= round(self.goal_rotation, 1): # Absolute value for direction agnostic
                         self.get_logger().info(f"Target rotation {self.goal_rotation:.2f} degrees reached")
                         self.stop_movement()
 
