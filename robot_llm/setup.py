@@ -17,7 +17,7 @@ setup(
     maintainer_email='vedantchoudhary16@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    # tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'llm_action_server = robot_llm.llm_action_server_node:main',

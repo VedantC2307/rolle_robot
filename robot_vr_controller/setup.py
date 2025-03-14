@@ -17,7 +17,7 @@ setup(
     maintainer_email='vedantchoudhary16@gmail.com',
     description='VR controller node for robot control',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    # tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'vr_control_node = robot_vr_controller.vr_control_node:main',
