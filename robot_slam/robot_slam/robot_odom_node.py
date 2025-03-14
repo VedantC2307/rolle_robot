@@ -72,9 +72,9 @@ class SLAMNode(Node):
             
             return {
                 "position": {
-                    "x": float(pos['x']),
-                    "y": float(pos['y']),
-                    "z": float(pos['z'])
+                    "x": float(pos['z']),
+                    "y": float(pos['x']),
+                    "z": float(pos['y'])
                 },
                 "orientation": {
                     "x": float(ori['x']),
@@ -102,8 +102,8 @@ class SLAMNode(Node):
         pose_msg.header.frame_id = "odom"
 
         # Fill in the pose with position & orientation
-        pose_msg.pose.position.x = pose_data["position"]["x"]
-        pose_msg.pose.position.y = pose_data["position"]["y"]
+        pose_msg.pose.position.x = - pose_data["position"]["x"]
+        pose_msg.pose.position.y = - pose_data["position"]["y"]
         pose_msg.pose.position.z = pose_data["position"]["z"]
 
         pose_msg.pose.orientation.x = pose_data["orientation"]["x"]

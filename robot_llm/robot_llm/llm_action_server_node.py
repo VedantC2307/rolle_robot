@@ -4,7 +4,7 @@ import rclpy.action
 import json
 from robot_messages.action import LLMTrigger
 from std_msgs.msg import String
-from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Vector3, Twist
 from robot_llm.robot_control_openai import LLMClient
 from robot_controller import config
 from threading import Lock
@@ -42,7 +42,7 @@ class LLMImageActionServer(Node):
 
         self.pose_subscription = self.create_subscription(
             Vector3,
-            '/pose_data',
+            '/rolle/pose',
             self.pose_callback,
             10
         )
@@ -55,7 +55,8 @@ class LLMImageActionServer(Node):
 
         self.speech_publisher = self.create_publisher(String, '/robot_speech', 2)
 
-        self.publish_motor_command = self.create_publisher(String, '/motor_command', 10)
+        # self.publish_motor_command = self.create_publisher(String, '/motor_command', 10)
+        self.publish_motor_velocity = self.create_publisher(Twist, '/desired_velocity', 10)  # Fixed typo
         
         self.current_pose = None
         self.is_moving = False
@@ -75,6 +76,29 @@ class LLMImageActionServer(Node):
         with self.pose_lock:
             self.latest_image_data = msg.data  # Store just the string data
             self.get_logger().debug("Received new image data")
+
+    def send_velocity_command(self, command):
+        """Send velocity command to the robot"""
+        vel_msg = Twist()
+        if command == "FORWARD":
+            vel_msg.linear.x = 0.1
+        elif command == "BACKWARD":
+            vel_msg.linear.x = -0.1
+        elif command == "CLOCKWISE":
+            vel_msg.angular.z = -0.1  # Added rotation commands
+        elif command == "ANTICLOCKWISE":
+            vel_msg.angular.z = 0.1  # Added rotation commands
+        else:
+            vel_msg.linear.x = 0.0
+            vel_msg.angular.z = 0.0
+        
+        vel_msg.linear.y = 0.0
+        vel_msg.linear.z = 0.0
+        vel_msg.angular.x = 0.0
+        vel_msg.angular.y = 0.0
+        
+        self.publish_motor_velocity.publish(vel_msg)  # Fixed typo
+        self.get_logger().info(f"Published velocity command: {command}")
 
     async def execute_callback(self, goal_handle):
         """Executes the action when goal is received."""
@@ -116,7 +140,7 @@ class LLMImageActionServer(Node):
             # Process the raw LLM response
             motor_command, units, previous_task_data, speech = process_llm_result(self, llm_response)
 
-            print(speech)
+            # print(speech)
 
             # Handle speech if present
             if speech:
@@ -150,19 +174,17 @@ class LLMImageActionServer(Node):
                 self.target_rotation = units if motor_command in ["CLOCKWISE", "ANTICLOCKWISE"] else 0
                 self.movement_type = motor_command
 
-            self.msg = String()
-            self.msg.data = motor_command
-            self.publish_motor_command.publish(self.msg)
-            self.get_logger().info(f"Published motor command: {motor_command}")
+            # Send velocity command instead of motor command
+            self.send_velocity_command(motor_command)
+            self.get_logger().info(f"Sent velocity command for: {motor_command}")
             
             self.is_moving = True
 
-            if not self.is_moving:
-                # Set the result to be the LLM's response. (Needs your actual result msg implementation)
-                result.success = True
-                result.message = "LLM Task Executed."
-                result.llm_response = json.dumps(llm_response)  # Convert to proper JSON string
-                goal_handle.succeed()
+            # Remove redundant check
+            result.success = True
+            result.message = "LLM Task Executed."
+            result.llm_response = json.dumps(llm_response)  # Convert to proper JSON string
+            goal_handle.succeed()
         else:
             self.get_logger().warn("No response from LLM.")
             result.success = False
@@ -208,11 +230,21 @@ class LLMImageActionServer(Node):
                 self.get_logger().error(f"Error in movement control: {e}")
                 self.stop_movement()
 
+    def stop_message(self):
+        vel_msg = Twist()
+        vel_msg.linear.x = 0.0   
+        vel_msg.linear.y = 0.0
+        vel_msg.linear.z = 0.0
+        vel_msg.angular.x = 0.0
+        vel_msg.angular.y = 0.0
+        vel_msg.angular.z = 0.0
+        
+        self.publish_motor_velocity.publish(vel_msg)
+        self.get_logger().info("Published stop command")
+
     def stop_movement(self):
         """Stop the robot movement"""
-        stop_msg = String()
-        stop_msg.data = "STOP"
-        self.publish_motor_command.publish(stop_msg)
+        self.stop_message()  # Send stop command first
         self.is_moving = False
         self.start_pose = None
         self.target_distance = None

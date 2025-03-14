@@ -18,9 +18,9 @@ def generate_launch_description():
         emulate_tty=True
     )
 
-    motor_control_node = Node(
+    velocity_control_node = Node(
         package='motor_controller',
-        executable='motor_control_node',
+        executable='velocity_control_node',
         name='Motor_Control_Node',
         output='screen',
         emulate_tty=True
@@ -52,10 +52,20 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True
     )
+
+    llm_prompt_node = Node(
+        package='robot_slam',
+        executable='llm_prompt_node',
+        name='llm_prompt_node',
+        output='screen',
+        emulate_tty=True
+    )
+
     return LaunchDescription([
         slam_node,
         camera_node,
         speech_node,
-        motor_control_node,
         llm_action_server_node,
+        llm_prompt_node
+        # velocity_control_node
     ])

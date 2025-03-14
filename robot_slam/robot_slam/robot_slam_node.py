@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Vector3, PoseStamped
+from nav_msgs.msg import Odometry
 from dotenv import load_dotenv
 import os
 import math
@@ -11,7 +10,7 @@ import zmq
 import json
 import time
 
-class SLAMNode(Node):  # Renamed from WebSocketListenerNode
+class SLAMNode(Node):  
     def __init__(self):
         # Load environment variables
         env_path = os.path.join(os.path.dirname(__file__), ".env")
@@ -22,7 +21,8 @@ class SLAMNode(Node):  # Renamed from WebSocketListenerNode
         self.get_logger().info("SLAM Node initialized!")
 
         # Publisher for pose data
-        self.pose_publisher = self.create_publisher(Vector3, '/pose_data', 5)
+        self.posestamped_publisher = self.create_publisher(PoseStamped, '/rolle/posestamped', 5)
+        self.pose_publisher = self.create_publisher(Vector3, '/rolle/pose', 5)
 
         # Initialize ZeroMQ context and socket
         self.zmq_context = zmq.Context()
@@ -39,6 +39,7 @@ class SLAMNode(Node):  # Renamed from WebSocketListenerNode
             topic = self.zmq_socket.recv_string(flags=zmq.NOBLOCK)
             message = self.zmq_socket.recv_string(flags=zmq.NOBLOCK)
             data = json.loads(message)
+            # print(data)
             
             # Check for the exact structure
             if data and 'pose' in data:
@@ -59,32 +60,70 @@ class SLAMNode(Node):  # Renamed from WebSocketListenerNode
             # Extract position and orientation from the exact structure
             pos = data['pose']['position']
             ori = data['pose']['orientation']
-            
-            # Get values with exact keys
-            x = float(pos['x'])
-            y = float(pos['y'])
-            z = float(pos['z'])
-            
-            qx = float(ori['x'])
-            qy = float(ori['y'])
-            qz = float(ori['z'])
-            qw = float(ori['w'])
 
-            roll = self.quaternion_to_roll(qx, qy, qz, qw)
+            roll = self.quaternion_to_roll(ori)
             
-            return {"x": x, "y": z, "z": roll}
+            return {
+                "position": {
+                    "x": float(pos['x']),
+                    "y": float(pos['z']),
+                    "z": float(pos['y'])
+                },
+                "orientation": {
+                    "x": float(ori['x']),
+                    "y": float(ori['y']),
+                    "z": float(ori['z']),
+                    "w": float(ori['w'])
+                },
+                "roll":{
+                    "roll": roll
+                }
+            }
 
         except Exception as e:
             self.get_logger().error(f"Error extracting pose: {str(e)}")
             return None
 
-    def quaternion_to_roll(self, qx, qy, qz, qw):
+
+    def publish_pose(self, pose_data):
+        """
+        Publish the pose data as a ROS 2 PoseStamped message.
+
+        Parameters:
+            pose_data (dict): Pose data extracted from the ZMQ message.
+        """
+        pose_msg = PoseStamped()
+        # Fill in the header
+        pose_msg.header.stamp = self.get_clock().now().to_msg()
+        pose_msg.header.frame_id = "odom"
+
+        # Fill in the pose with position & orientation
+        pose_msg.pose.position.x = pose_data["position"]["x"]
+        pose_msg.pose.position.y = pose_data["position"]["y"]
+        pose_msg.pose.position.z = pose_data["position"]["z"]
+
+        pose_msg.pose.orientation.x = pose_data["orientation"]["x"]
+        pose_msg.pose.orientation.y = pose_data["orientation"]["y"]
+        pose_msg.pose.orientation.z = pose_data["orientation"]["z"]
+        pose_msg.pose.orientation.w = pose_data["orientation"]["w"]
+
+        self.posestamped_publisher.publish(pose_msg)
+        self.get_logger().debug("Pose data published to '/rolle/posestamped' topic.")
+
+        msg = Vector3()
+        msg.x = pose_data["position"]["x"]
+        msg.y = pose_data["position"]["y"]
+        msg.z = pose_data["roll"]["roll"]
+        self.pose_publisher.publish(msg)
+        self.get_logger().debug("Pose data published to '/rolle/pose' topic.")
+
+    def quaternion_to_roll(self, ori):
         """Convert quaternion to roll (rotation around X-axis) in degrees"""
         try:
-            qx = qx
-            qy = qy
-            qz = qz
-            qw = qw
+            qx = float(ori['x'])
+            qy = float(ori['y'])
+            qz = float(ori['z'])
+            qw = float(ori['w'])
 
             t0 = 2.0 * (qw * qx + qy * qz)
             t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
@@ -93,20 +132,6 @@ class SLAMNode(Node):  # Renamed from WebSocketListenerNode
         except Exception as e:
             self.get_logger().error(f"Error in quaternion conversion: {e}")
             return 0.0
-
-    def publish_pose(self, pose_data):
-        """
-        Publish the pose data as a ROS 2 Pose message.
-
-        Parameters:
-            pose_data (dict): Pose data extracted from the WebSocket message.
-        """
-        msg = Vector3()
-        msg.x = pose_data["x"]
-        msg.y = pose_data["y"]
-        msg.z = pose_data["z"]
-        self.pose_publisher.publish(msg)
-        self.get_logger().debug("Pose data published to '/pose_data' topic.")
 
     def __del__(self):
         """Cleanup method to ensure proper shutdown"""
