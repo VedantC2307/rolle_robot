@@ -4,6 +4,8 @@ import math
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, Vector3
+import signal
+import sys
 
 class VelocityController(Node):
     def __init__(self):
@@ -22,6 +24,10 @@ class VelocityController(Node):
         self.serial_port = serial.Serial('/dev/ttyS0', 115200, timeout=1)
 
         self.create_timer(0.1, self.control_loop)
+        
+        # Setup signal handlers
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
 
     def cmd_vel_callback(self, msg):
         self.setpoint.linear.x = msg.linear.x  
@@ -47,10 +53,10 @@ class VelocityController(Node):
 
     def map_to_pwm(self, value):
         # Define PWM limits
-        min_forward_pwm = 70
-        max_forward_pwm = 90
-        min_backward_pwm = 70
-        max_backward_pwm = 90
+        min_forward_pwm = 140
+        max_forward_pwm = 150
+        min_backward_pwm = 145
+        max_backward_pwm = 150
 
         # Map velocity to PWM ranges
         if value > 0:
@@ -63,8 +69,8 @@ class VelocityController(Node):
 
     def map_to_rotation_pwm(self, value):
         # Define PWM limits for rotation (might need different values than forward/backward)
-        min_rotation_pwm = 70
-        max_rotation_pwm = 90
+        min_rotation_pwm = 250
+        max_rotation_pwm = 255
 
         # Map angular velocity to PWM ranges
         if value > 0:  # Clockwise rotation
@@ -75,24 +81,57 @@ class VelocityController(Node):
             return max(-max_rotation_pwm, min(-min_rotation_pwm, pwm))
         return 0
 
-    def __del__(self):
-        # Send zero velocity commands for both motions
-        stop_commands = "PWM:F:0\r\nPWM:R:0\r\n"
+    def signal_handler(self, sig, frame):
+        """Handle shutdown signals gracefully"""
+        self.get_logger().info('Shutdown signal received, stopping robot...')
         try:
-            self.serial_port.write(stop_commands.encode())
-            self.get_logger().info('Sent stop commands before shutdown')
-            self.serial_port.close()
-        except:
-            pass
+            # Send stop command
+            stop_command = "PWM:F:0\r\n"
+            self.serial_port.write(stop_command.encode())
+            time.sleep(0.1)  # Give time for command to be sent
+            
+            # Close serial port
+            if hasattr(self, 'serial_port') and self.serial_port.is_open:
+                self.serial_port.close()
+                
+            self.get_logger().info('Successfully stopped robot and closed serial port')
+        except Exception as e:
+            self.get_logger().error(f'Error during shutdown: {e}')
+        finally:
+            # Exit cleanly
+            sys.exit(0)
+
+    def destroy_node(self):
+        """Clean shutdown of the node"""
+        try:
+            # Send stop command
+            stop_command = "PWM:F:0\r\n"
+            if hasattr(self, 'serial_port') and self.serial_port.is_open:
+                self.serial_port.write(stop_command.encode())
+                time.sleep(0.1)  # Give time for command to be sent
+                self.serial_port.close()
+                self.get_logger().info('Successfully stopped robot and closed serial port')
+        except Exception as e:
+            self.get_logger().error(f'Error during node destruction: {e}')
+        finally:
+            super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
     controller = VelocityController()
+    
     try:
         rclpy.spin(controller)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"Unexpected error: {e}")
     finally:
         controller.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass  # Ignore shutdown errors
 
 if __name__ == '__main__':
     main()
