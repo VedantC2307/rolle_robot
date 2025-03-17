@@ -69,7 +69,7 @@ class VelocityController(Node):
 
     def map_to_rotation_pwm(self, value):
         # Define PWM limits for rotation (might need different values than forward/backward)
-        min_rotation_pwm = 250
+        min_rotation_pwm = 220
         max_rotation_pwm = 255
 
         # Map angular velocity to PWM ranges
