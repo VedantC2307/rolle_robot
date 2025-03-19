@@ -8,6 +8,17 @@ from launch.actions import IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def generate_launch_description():
+
+    robot_launch_pkg_share = get_package_share_directory('robot_launch')
+
+    # Define the launch description
+    ld = LaunchDescription()
+
+    lidar_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(robot_launch_pkg_share, 'launch', 'lidar.launch.py')
+        )
+    )
     
     # Launch llm_action_server node
     llm_action_server_node = Node(
@@ -61,11 +72,21 @@ def generate_launch_description():
         emulate_tty=True
     )
 
+    joystick_control_node = Node(
+        package='joy_control',
+        executable='joystick_control_node',
+        name='joystick_control_node',
+        output='screen',
+        emulate_tty=True
+    )
+
     return LaunchDescription([
         slam_node,
-        camera_node,
-        speech_node,
-        llm_action_server_node,
-        llm_prompt_node
-        # velocity_control_node
+        # camera_node,
+        # speech_node,
+        # llm_action_server_node,
+        # llm_prompt_node,
+        lidar_launch,
+        velocity_control_node,
+        joystick_control_node,
     ])

@@ -13,7 +13,7 @@ class VelocityController(Node):
         
         self.get_logger().info('Velocity Controller Node Started')
         
-        self.create_subscription(Twist, '/desired_velocity', self.cmd_vel_callback, 10)
+        self.create_subscription(Twist, '/cmd_vel_rolle', self.cmd_vel_callback, 10)
         
         self.setpoint = Twist()
         self.estimated_vel = Twist()
@@ -49,14 +49,14 @@ class VelocityController(Node):
         self.serial_port.write(command.encode())
 
         # Log the command
-        self.get_logger().info(f'Sent PWM command: {command.strip()}')
+        self.get_logger().debug(f'Sent PWM command: {command.strip()}')
 
     def map_to_pwm(self, value):
         # Define PWM limits
         min_forward_pwm = 140
-        max_forward_pwm = 150
+        max_forward_pwm = 170
         min_backward_pwm = 145
-        max_backward_pwm = 150
+        max_backward_pwm = 170
 
         # Map velocity to PWM ranges
         if value > 0:
@@ -69,8 +69,8 @@ class VelocityController(Node):
 
     def map_to_rotation_pwm(self, value):
         # Define PWM limits for rotation (might need different values than forward/backward)
-        min_rotation_pwm = 220
-        max_rotation_pwm = 255
+        min_rotation_pwm = 190
+        max_rotation_pwm = 220
 
         # Map angular velocity to PWM ranges
         if value > 0:  # Clockwise rotation

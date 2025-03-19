@@ -1,28 +1,25 @@
 import rclpy
 from rclpy.node import Node
-from robot_messages.msg import JoystickCommand
+from geometry_msgs.msg import Twist  # Changed: import Twist message
 import zmq
 import json
-
 
 class JoystickControlNode(Node):
     def __init__(self):
         super().__init__('joystick_control_node')
         
-        # Create publisher
+        # Create publisher for Twist messages on cmd_vel_joy topic
         self.publisher = self.create_publisher(
-            JoystickCommand,
-            'joystick_commands',
+            Twist,
+            'cmd_vel_joy',
             10
         )
 
-        # Setup ZMQ properly
+        # Setup ZMQ subscriber for joystick messages
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.SUB)
         self.zmq_socket.connect("tcp://localhost:5555")
-        self.zmq_socket.setsockopt_string(zmq.SUBSCRIBE, "robot_control")
-
-        self.last_angle = None
+        self.zmq_socket.setsockopt_string(zmq.SUBSCRIBE, "joystick")
         
         # Create timer for checking messages
         self.timer = self.create_timer(0.01, self.timer_callback)
@@ -34,35 +31,14 @@ class JoystickControlNode(Node):
             message = self.zmq_socket.recv_string(flags=zmq.NOBLOCK)
             data = json.loads(message)
             
-            if data['type'] == 'joystick' and data['data']['command'] == 'move':
-                self.last_angle = data['data']['params']['angle']
-                direction = data['data']['params']['direction']
-                # print('done')
-                msg = JoystickCommand()
-                msg.command = data['data']['command']
-                msg.angle = float(data['data']['params']['angle'])
-                
-                # Handle direction being None (rotation-only message)
-                if direction is None:
-                    msg.direction = 'rotate'
-                else:
-                    # Only set forward/backward if direction is valid
-                    if direction.lower() in ['forward', 'backward']:
-                        msg.direction = direction
-                    else:
-                        msg.direction = 'rotate'
-                
-                self.publisher.publish(msg)
-                self.get_logger().info(f'Published: {msg.direction}, {msg.angle}')
-                
-            elif data['type'] == 'joystick' and data['data']['command'] == 'stop':
-                msg = JoystickCommand()
-                msg.command = data['data']['command']
-                msg.direction = 'stop'
-                msg.angle = float(self.last_angle if self.last_angle is not None else 0.0)
-                
-                self.publisher.publish(msg)
-                self.get_logger().info(f'Published: {msg.direction}, {msg.angle}')
+            # Expecting only joystick data with x and y values
+            if data.get('type') == 'joystick':
+                twist = Twist()
+                twist.linear.x = float(data['data']['y'])
+                twist.angular.z = float(data['data']['x'])
+                # Other twist fields remain 0.0 by default.
+                self.publisher.publish(twist)
+                self.get_logger().info(f'Published Twist: linear.x={twist.linear.x}, angular.z={twist.angular.z}')
                 
         except zmq.Again:
             # No message available
@@ -71,7 +47,7 @@ class JoystickControlNode(Node):
             self.get_logger().error(f'Error processing message: {str(e)}')
 
     def __del__(self):
-        """Cleanup ZMQ resources"""
+        # Cleanup ZMQ resources
         if hasattr(self, 'zmq_socket'):
             self.zmq_socket.close()
         if hasattr(self, 'zmq_context'):
