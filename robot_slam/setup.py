@@ -25,8 +25,9 @@ setup(
             # 'odometry_node = robot_slam.odometry_node:main',
             # 'robot_odom = robot_slam.robot_odom_node:main',
             'base64_camera_data_node = robot_slam.camera_data_node:main',
-            'robot_speech_node = robot_slam.robot_speech_node:main',
+            # 'robot_speech_node = robot_slam.robot_speech_node:main',
             'llm_prompt_node = robot_slam.llm_prompt_node:main',
+            'imu_node = robot_slam.imu_node:main',
         ],
     },
 )

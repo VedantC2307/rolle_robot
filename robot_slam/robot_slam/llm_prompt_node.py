@@ -19,7 +19,7 @@ class LLMPromptNode(Node):
         self.zmq_socket.subscribe('transcription')
         
         # Create ROS publisher
-        self.publisher = self.create_publisher(String, '/llm_prompt', 10)
+        self.publisher = self.create_publisher(String, '/mobile_sensor/speech', 10)
         
         # Create timer for checking ZMQ messages (30Hz)
         self.create_timer(0.033, self.receive_zmq_data)

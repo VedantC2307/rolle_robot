@@ -18,7 +18,7 @@ class MainController(Node):
         # Subscribe to prompt topic
         self.prompt_subscription = self.create_subscription(
             String,
-            '/llm_prompt',
+            '/mobile_sensor/speech',
             self.prompt_callback,
             10
         )

@@ -1,23 +1,18 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-import zmq
-import sys
 
 
 class RobotSpeechNode(Node):
     def __init__(self):
         super().__init__('robot_speech_node')
         
-        # Initialize instance variables first
-        self._context = None
-        self._publisher = None
-        
-        # Then set up ZMQ
-        self._context = zmq.Context()
-        self._publisher = self._context.socket(zmq.PUB)
-        self._publisher.bind("tcp://*:5557")
-        self.get_logger().info("ZMQ Publisher bound to port 5557")
+        # Create publishers
+        self.tts_publisher = self.create_publisher(
+            String,
+            '/mobile_sensor/tts',
+            3
+        )
 
         # Create ROS2 subscription
         self.subscription = self.create_subscription(
@@ -31,18 +26,16 @@ class RobotSpeechNode(Node):
     def speech_callback(self, msg):
         """Handle incoming speech messages"""
         try:
-            # Forward the message via ZMQ
-            self._publisher.send_multipart([b"tts", msg.data.encode()])
-            self.get_logger().debug(f"Forwarded speech message: {msg.data}")
+            # Publish to TTS topic
+            tts_msg = String()
+            tts_msg.data = msg.data
+            self.tts_publisher.publish(tts_msg)
+            self.get_logger().info(f"Published TTS message: {msg.data}")
         except Exception as e:
-            self.get_logger().error(f"Error sending message via ZMQ: {e}")
+            self.get_logger().error(f"Error publishing TTS message: {e}")
 
     def destroy_node(self):
-        """Cleanup ZMQ resources"""
-        if self._publisher:
-            self._publisher.close()
-        if self._context:
-            self._context.term()
+        """Cleanup resources"""
         super().destroy_node()
 
 

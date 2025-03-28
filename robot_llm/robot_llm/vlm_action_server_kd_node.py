@@ -9,7 +9,8 @@ from robot_llm.robot_control_openai import LLMClient
 from robot_controller import config
 from threading import Lock
 import math
-from robot_llm.helper_functions import process_llm_result, capture_image
+from robot_llm.helper_functions_v2 import process_llm_result, capture_image
+import asyncio
 
 class LLMImageActionServer(Node):
     def __init__(self):
@@ -21,7 +22,7 @@ class LLMImageActionServer(Node):
         
         # Constants
         # self.SAFE_DISTANCE_THRESHOLD = 0.20  # meters
-        self.MOVEMENT_CHECK_RATE = 1/70  # seconds
+        self.MOVEMENT_CHECK_RATE = 0.1  # seconds
 
         self.llm_client = LLMClient()  # Initialize LLMClient
         # Initialize action server
@@ -43,7 +44,7 @@ class LLMImageActionServer(Node):
             Vector3,
             '/rolle/pose',
             self.pose_callback,
-            5
+            10
         )
 
         # Create a timer for movement monitoring
@@ -63,13 +64,6 @@ class LLMImageActionServer(Node):
         self.target_distance = None
         self.target_rotation = None
         self.movement_type = None
-        
-        # Add initialization for rotation variables
-        self.rotation_ramp_done = False
-        self.rotation_start_time = None
-
-        self.INITIAL_ROTATION_SPEED = 0.4  # Initial high rotation speed
-        self.CRUISE_ROTATION_SPEED = 0.1
 
     def pose_callback(self, msg):
         """Thread-safe pose update"""
@@ -91,19 +85,9 @@ class LLMImageActionServer(Node):
         elif command == "BACKWARD":
             vel_msg.linear.x = -0.1
         elif command == "CLOCKWISE":
-            if not self.rotation_ramp_done:
-                vel_msg.angular.z = -self.INITIAL_ROTATION_SPEED  # Start with high speed
-                self.rotation_start_time = self.get_clock().now()
-                self.rotation_ramp_done = False
-            else:
-                vel_msg.angular.z = -self.CRUISE_ROTATION_SPEED  # Continue with lower speed
+            vel_msg.angular.z = -0.1  # Added rotation commands
         elif command == "ANTICLOCKWISE":
-            if not self.rotation_ramp_done:
-                vel_msg.angular.z = self.INITIAL_ROTATION_SPEED  # Start with high speed
-                self.rotation_start_time = self.get_clock().now()
-                self.rotation_ramp_done = False
-            else:
-                vel_msg.angular.z = self.CRUISE_ROTATION_SPEED  # Continue with lower speed
+            vel_msg.angular.z = 0.1  # Added rotation commands
         else:
             vel_msg.linear.x = 0.0
             vel_msg.angular.z = 0.0
@@ -149,6 +133,85 @@ class LLMImageActionServer(Node):
         print(llm_response)
 
         if llm_response:
+            self.get_logger().info("LLM calling successful")
+            feedback_msg.status = "LLM processing successful."
+            goal_handle.publish_feedback(feedback_msg)
+
+            # Process the raw LLM response
+            motor_command, units, commands_or_data, speech = process_llm_result(self, llm_response)
+            
+            # Check if we have a sequence of commands to execute
+            if motor_command is None and isinstance(commands_or_data, list):
+                # Sequential execution of commands
+                command_count = len(commands_or_data)
+                self.get_logger().info(f"Executing sequence of {command_count} commands")
+                
+                for i, command_data in enumerate(commands_or_data):
+                    self.get_logger().info(f"Executing command {i+1}/{command_count}")
+                    
+                    # Process each command individually
+                    cmd_str = command_data.get("command", "")
+                    robot_speech = command_data.get("description", "")
+                    
+                    # Handle speech for each command if present
+                    if robot_speech:
+                        msg = String()
+                        msg.data = robot_speech
+                        self.speech_publisher.publish(msg)
+                        self.get_logger().info(f"Published speech: {robot_speech}")
+                    
+                    # Skip further processing for TALK command
+                    if cmd_str == "TALK":
+                        self.get_logger().info("Executed TALK command, continuing to next command")
+                        continue
+                    
+                    # Map LLM command to motor command and get distance/rotation
+                    motor_cmd = None
+                    distance_in_m = 0.0
+                    rotation_value = 0.0
+                    
+                    if "MOVE_FORWARD" in cmd_str:
+                        motor_cmd = "FORWARD"
+                        distance_in_m = command_data.get("linear_distance", 0.0) / 100.0
+                    elif "MOVE_BACKWARD" in cmd_str:
+                        motor_cmd = "BACKWARD"
+                        distance_in_m = command_data.get("linear_distance", 0.0) / 100.0
+                    elif "ROTATE_CLOCKWISE" in cmd_str:
+                        motor_cmd = "CLOCKWISE"
+                        rotation_value = command_data.get("rotate_degree", 0.0)
+                    elif "ROTATE_COUNTERCLOCKWISE" in cmd_str:
+                        motor_cmd = "ANTICLOCKWISE"
+                        rotation_value = command_data.get("rotate_degree", 0.0)
+                    elif "WAIT" in cmd_str:
+                        motor_cmd = "WAIT"
+                    
+                    if not motor_cmd:
+                        self.get_logger().warn(f"Unknown command: {cmd_str}, skipping")
+                        continue
+                    
+                    # Set movement parameters and execute
+                    with self.pose_lock:
+                        self.start_pose = self.current_pose
+                        self.target_distance = distance_in_m
+                        self.target_rotation = rotation_value
+                        self.movement_type = motor_cmd
+                    
+                    # Send velocity command and wait for completion
+                    self.send_velocity_command(motor_cmd)
+                    self.is_moving = True
+                    await self.wait_for_movement_completion()
+                    
+                    feedback_msg.status = f"Completed command {i+1}/{command_count}"
+                    goal_handle.publish_feedback(feedback_msg)
+                
+                self.get_logger().info("Completed all commands in sequence")
+                result.success = True
+                result.message = "Sequential LLM Tasks Executed"
+                result.llm_response = json.dumps(llm_response)
+                goal_handle.succeed(result=result)
+                return result
+            
+            # Handle single command case
             self.get_logger().info("LLM calling successful")
             feedback_msg.status = "LLM processing successful."
             goal_handle.publish_feedback(feedback_msg)
@@ -209,22 +272,18 @@ class LLMImageActionServer(Node):
             goal_handle.abort(result=result)
 
         return result
+
+    async def wait_for_movement_completion(self):
+        """Waits for the current movement to complete before continuing."""
+        self.get_logger().debug("Waiting for movement to complete...")
+        while self.is_moving and rclpy.ok():
+            await asyncio.sleep(0.1)  # Non-blocking wait
+        self.get_logger().debug("Movement completed")
     
     def movement_control_callback(self):
         """Timer callback for continuous movement monitoring"""
         if not self.is_moving or self.start_pose is None or self.current_pose is None:
             return
-        
-        # Handle rotation ramping
-        if self.movement_type in ["CLOCKWISE", "ANTICLOCKWISE"] and not self.rotation_ramp_done:
-            current_time = self.get_clock().now()
-            if self.rotation_start_time is not None:
-                # Switch to cruise speed after 0.5 seconds
-                time_diff = (current_time - self.rotation_start_time).nanoseconds / 1e9
-                if time_diff > 0.5:  # 500ms of initial high-speed rotation
-                    self.rotation_ramp_done = True
-                    # Resend command to apply the cruise speed
-                    self.send_velocity_command(self.movement_type)
         
         with self.pose_lock:
             if self.start_pose is None:
@@ -250,8 +309,7 @@ class LLMImageActionServer(Node):
                     
                     self.get_logger().debug(f"Rotated angle: {rotated_angle:.2f} degrees")
                     
-                    safe_rotation_threshold = rotated_angle + 20  # degrees
-                    if safe_rotation_threshold >= self.target_rotation:
+                    if rotated_angle >= self.target_rotation:
                         self.get_logger().info(f"Target rotation {self.target_rotation:.2f} degrees reached")
                         self.stop_movement()
                         

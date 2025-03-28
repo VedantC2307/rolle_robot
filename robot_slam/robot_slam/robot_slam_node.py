@@ -1,14 +1,11 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Vector3, PoseStamped
+from geometry_msgs.msg import Vector3, PoseStamped, Pose
 from nav_msgs.msg import Odometry
 from dotenv import load_dotenv
 import os
 import math
 from robot_controller import config
-import zmq
-import json
-import time
 
 class SLAMNode(Node):  
     def __init__(self):
@@ -24,66 +21,52 @@ class SLAMNode(Node):
         self.posestamped_publisher = self.create_publisher(PoseStamped, '/rolle/posestamped', 5)
         self.pose_publisher = self.create_publisher(Vector3, '/rolle/pose', 5)
 
-        # Initialize ZeroMQ context and socket
-        self.zmq_context = zmq.Context()
-        self.zmq_socket = self.zmq_context.socket(zmq.SUB)
-        self.zmq_socket.connect("tcp://localhost:5556")
-        self.zmq_socket.subscribe("sensor_data")
-        
-        # Create a timer to check for new data
-        self.create_timer(0.033, self.receive_zmq_data)  # 100Hz timer
+        # Subscribe to pose topic
+        self.pose_subscription = self.create_subscription(
+            Pose,
+            '/mobile_sensor/pose',
+            self.pose_callback,
+            5
+        )
 
-    def receive_zmq_data(self):
-        """Receives ZeroMQ data containing position, orientation and camera frame."""
+    def pose_callback(self, msg):
+        """Callback for receiving pose data"""
         try:
-            topic = self.zmq_socket.recv_string(flags=zmq.NOBLOCK)
-            message = self.zmq_socket.recv_string(flags=zmq.NOBLOCK)
-            data = json.loads(message)
-            # print(data)
-            
-            # Check for the exact structure
-            if data and 'pose' in data:
-                pose_data = self.extract_pose(data)
-                if pose_data:
-                    self.publish_pose(pose_data)
-                    self.get_logger().debug(f"Timestamp: {data['timestamp']}")
-                    
-        except zmq.Again:
-            # No message available
-            pass
-        except Exception as e:
-            self.get_logger().error(f"Error receiving ZMQ data: {str(e)}")
-
-    def extract_pose(self, data):
-        """Extract pose from the ZMQ message with exact JSON structure."""
-        try:
-            # Extract position and orientation from the exact structure
-            pos = data['pose']['position']
-            ori = data['pose']['orientation']
-
-            roll = self.quaternion_to_roll(ori)
-            
-            return {
+            pose_data = {
                 "position": {
-                    "x": float(pos['x']),
-                    "y": float(pos['z']),
-                    "z": float(pos['y'])
+                    "x": float(msg.position.x),
+                    "y": float(msg.position.z),
+                    "z": float(msg.position.y)
                 },
                 "orientation": {
-                    "x": float(ori['x']),
-                    "y": float(ori['y']),
-                    "z": float(ori['z']),
-                    "w": float(ori['w'])
+                    "x": float(msg.orientation.x),
+                    "y": float(msg.orientation.y),
+                    "z": float(msg.orientation.z),
+                    "w": float(msg.orientation.w)
                 },
-                "roll":{
-                    "roll": roll
+                "roll": {
+                    "roll": self.quaternion_to_roll(msg.orientation)
                 }
             }
-
+            self.publish_pose(pose_data)
         except Exception as e:
-            self.get_logger().error(f"Error extracting pose: {str(e)}")
-            return None
+            self.get_logger().error(f"Error processing pose data: {str(e)}")
 
+    def quaternion_to_roll(self, orientation):
+        """Convert quaternion to roll (rotation around X-axis) in degrees"""
+        try:
+            qx = float(orientation.x)
+            qy = float(orientation.y)
+            qz = float(orientation.z)
+            qw = float(orientation.w)
+
+            t0 = 2.0 * (qw * qx + qy * qz)
+            t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
+            roll = math.degrees(math.atan2(t0, t1))
+            return roll
+        except Exception as e:
+            self.get_logger().error(f"Error in quaternion conversion: {e}")
+            return 0.0
 
     def publish_pose(self, pose_data):
         """
@@ -117,28 +100,9 @@ class SLAMNode(Node):
         self.pose_publisher.publish(msg)
         self.get_logger().debug("Pose data published to '/rolle/pose' topic.")
 
-    def quaternion_to_roll(self, ori):
-        """Convert quaternion to roll (rotation around X-axis) in degrees"""
-        try:
-            qx = float(ori['x'])
-            qy = float(ori['y'])
-            qz = float(ori['z'])
-            qw = float(ori['w'])
-
-            t0 = 2.0 * (qw * qx + qy * qz)
-            t1 = 1.0 - 2.0 * (qx * qx + qy * qy)
-            roll = math.degrees(math.atan2(t0, t1))
-            return roll
-        except Exception as e:
-            self.get_logger().error(f"Error in quaternion conversion: {e}")
-            return 0.0
-
     def __del__(self):
         """Cleanup method to ensure proper shutdown"""
-        if hasattr(self, 'zmq_socket'):
-            self.zmq_socket.close()
-        if hasattr(self, 'zmq_context'):
-            self.zmq_context.term()
+        pass
 
 def main(args=None):
     rclpy.init(args=args)

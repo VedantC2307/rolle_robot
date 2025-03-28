@@ -3,9 +3,8 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-import zmq
-import json
-import time
+from sensor_msgs.msg import CompressedImage
+import base64
 
 class CameraDataNode(Node):
     def __init__(self):
@@ -14,48 +13,29 @@ class CameraDataNode(Node):
 
         # Publisher for camera data (base64 string)
         self.camera_publisher = self.create_publisher(String, '/base64_image', 5)
-
-        # Initialize ZeroMQ context and socket
-        self.zmq_context = zmq.Context()
-        self.zmq_socket = self.zmq_context.socket(zmq.SUB)
-        self.zmq_socket.connect("tcp://localhost:5556")
-        self.zmq_socket.subscribe("sensor_data")
         
-        # Create a timer to check for new data
-        self.create_timer(0.01, self.receive_zmq_data)  # 10Hz timer
+        # Subscribe to compressed image topic
+        self.image_subscription = self.create_subscription(
+            CompressedImage,
+            '/camera/image_raw/compressed',
+            self.image_callback,
+            5)
 
-    def receive_zmq_data(self):
-        """Receives ZeroMQ data and extracts camera frame."""
+    def image_callback(self, msg):
+        """Convert compressed image to base64 and publish"""
         try:
-            topic = self.zmq_socket.recv_string(flags=zmq.NOBLOCK)
-            message = self.zmq_socket.recv_string(flags=zmq.NOBLOCK)
-            data = json.loads(message)
-            
-            # Extract and publish camera data if available
-            if data and 'camera' in data:
-                camera_frame = data['camera']
-                if camera_frame:
-                    self.publish_camera_data(camera_frame)
-                    
-        except zmq.Again:
-            # No message available
-            pass
+            # Convert compressed image data to base64 string
+            base64_str = base64.b64encode(msg.data).decode('utf-8')
+            self.publish_camera_data(base64_str)
         except Exception as e:
-            self.get_logger().error(f"Error receiving ZMQ data: {str(e)}")
+            self.get_logger().error(f"Error processing image: {str(e)}")
 
     def publish_camera_data(self, camera_frame):
         """Publish the camera frame as a base64 string."""
         msg = String()
         msg.data = camera_frame
         self.camera_publisher.publish(msg)
-        self.get_logger().debug("Camera frame published to '/camera_data' topic")
-
-    def __del__(self):
-        """Cleanup method to ensure proper shutdown"""
-        if hasattr(self, 'zmq_socket'):
-            self.zmq_socket.close()
-        if hasattr(self, 'zmq_context'):
-            self.zmq_context.term()
+        self.get_logger().debug("Camera frame published to '/base64_image' topic")
 
 def main(args=None):
     rclpy.init(args=args)
