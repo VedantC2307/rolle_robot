@@ -1,83 +1,128 @@
+#!/usr/bin/env python3
+
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
-import smbus2
+from geometry_msgs.msg import Quaternion
+import serial
+import json
 import time
 
-class BNO08Node(Node):
+class IMUPublisher(Node):
     def __init__(self):
-        super().__init__('bno08_node')
-        self.publisher_ = self.create_publisher(Imu, 'imu/data', 10)
-        # Publish sensor data every 0.1 seconds
-        self.timer = self.create_timer(0.1, self.timer_callback)
+        super().__init__('imu_publisher')
         
-        # Initialize the I²C bus (bus 1 is common for Raspberry Pi)
-        self.bus = smbus2.SMBus(1)
-        self.address = 0x4A  # Update with your sensor's I²C address
+        # Create publisher
+        self.imu_publisher = self.create_publisher(Imu, 'imu/data', 10)
         
-        # Run any necessary sensor initialization (refer to your sensor datasheet)
-        self.initialize_sensor()
-
-    def initialize_sensor(self):
-        """
-        Initialize the BNO08 sensor.
-        Depending on your sensor and configuration, you might need to:
-        - Reset the sensor
-        - Configure operating modes
-        - Set data output formats
-        This function should send the proper configuration commands.
-        """
-        # Example: write to a register to start sensor in a desired mode
-        # self.bus.write_byte_data(self.address, register_address, value)
-        pass
-
-    def timer_callback(self):
-        """
-        Read sensor data from the BNO08 and publish an Imu message.
-        Replace the I²C read sequence below with the correct registers and data lengths 
-        as defined by your sensor's datasheet.
-        """
+        # Declare parameters
+        self.declare_parameter('serial_port', '/dev/ttyS0')
+        self.declare_parameter('baud_rate', 115200)
+        self.declare_parameter('frame_id', 'imu_link')
+        self.declare_parameter('publish_rate', 60.0)  # Hz
+        
+        # Get parameters
+        self.serial_port = self.get_parameter('serial_port').value
+        self.baud_rate = self.get_parameter('baud_rate').value
+        self.frame_id = self.get_parameter('frame_id').value
+        self.publish_rate = self.get_parameter('publish_rate').value
+        
+        # Initialize serial connection
+        self.ser = None
+        self.connect_serial()
+        
+        # Create timer for checking serial data
+        self.timer = self.create_timer(1.0/self.publish_rate, self.timer_callback)
+        
+        self.get_logger().info('IMU Publisher node initialized with JSON protocol')
+        
+    def connect_serial(self):
         try:
-            # Example: Read 6 bytes of data (adjust register and length as needed)
-            data = self.bus.read_i2c_block_data(self.address, 0x00, 6)
+            self.ser = serial.Serial(
+                port=self.serial_port,
+                baudrate=self.baud_rate,
+                timeout=0.5
+            )
+            self.get_logger().info(f'Connected to {self.serial_port} at {self.baud_rate} baud')
+        except serial.SerialException as e:
+            self.get_logger().error(f'Failed to connect to serial port: {e}')
+            self.ser = None
             
-            imu_msg = Imu()
-            # Convert raw sensor data to physical values
-            # Here we assume that data bytes represent acceleration values
-            imu_msg.linear_acceleration.x = self.convert_acc(data[0], data[1])
-            imu_msg.linear_acceleration.y = self.convert_acc(data[2], data[3])
-            imu_msg.linear_acceleration.z = self.convert_acc(data[4], data[5])
+    def timer_callback(self):
+        if self.ser is None or not self.ser.is_open:
+            self.get_logger().warn('Serial connection not available, attempting to reconnect...')
+            self.connect_serial()
+            return
             
-            # Populate header with the current time and frame id
-            imu_msg.header.stamp = self.get_clock().now().to_msg()
-            imu_msg.header.frame_id = 'imu_link'
+        try:
+            # Read line from serial
+            line = self.ser.readline().decode('utf-8').strip()
             
-            self.publisher_.publish(imu_msg)
-            self.get_logger().info('Published IMU data')
+            if not line:
+                return
+            
+            # Parse JSON data
+            try:
+                data = json.loads(line)
+                
+                # Check if we have all quaternion components
+                if all(key in data for key in ['qw', 'qx', 'qy', 'qz']):
+                    quaternion = [data['qw'], data['qx'], data['qy'], data['qz']]
+                    self.publish_imu_data(quaternion)
+                else:
+                    self.get_logger().warn(f'Incomplete quaternion data: {data}')
+                    
+            except json.JSONDecodeError as e:
+                self.get_logger().warn(f'Invalid JSON: {line}, Error: {e}')
+                
         except Exception as e:
-            self.get_logger().error(f'Error reading from sensor: {e}')
-
-    def convert_acc(self, low_byte, high_byte):
-        """
-        Convert two bytes of data into a signed acceleration value.
-        The scaling factor should be adjusted according to your sensor's specification.
-        """
-        raw_value = (high_byte << 8) | low_byte
-        # Convert to signed 16-bit integer
-        if raw_value > 32767:
-            raw_value -= 65536
-        # Example scale factor (update based on datasheet)
-        scale = 0.01  
-        return raw_value * scale
-
+            self.get_logger().error(f'Error reading from serial: {e}')
+            
+    def publish_imu_data(self, quaternion_values):
+        # Create Imu message
+        imu_msg = Imu()
+        
+        # Set header
+        imu_msg.header.stamp = self.get_clock().now().to_msg()
+        imu_msg.header.frame_id = self.frame_id
+        
+        # Set orientation (w, x, y, z from quaternion_values)
+        imu_msg.orientation.w = quaternion_values[0]
+        imu_msg.orientation.x = quaternion_values[1]
+        imu_msg.orientation.y = quaternion_values[2]
+        imu_msg.orientation.z = quaternion_values[3]
+        
+        # Set orientation covariance to -1 (unknown)
+        imu_msg.orientation_covariance = [0.0] * 9
+        
+        # Set velocity to 0.0
+        imu_msg.angular_velocity.x = 0.0
+        imu_msg.angular_velocity.y = 0.0
+        imu_msg.angular_velocity.z = 0.0
+        imu_msg.angular_velocity_covariance = [-1.0] * 9
+        
+        # Set acceleration to 0.0
+        imu_msg.linear_acceleration.x = 0.0
+        imu_msg.linear_acceleration.y = 0.0
+        imu_msg.linear_acceleration.z = 0.0
+        imu_msg.linear_acceleration_covariance = [-1.0] * 9
+        
+        # Publish the message
+        self.imu_publisher.publish(imu_msg)
+        self.get_logger().debug(f'Published IMU data: w={quaternion_values[0]:.2f}, x={quaternion_values[1]:.2f}, y={quaternion_values[2]:.2f}, z={quaternion_values[3]:.2f}')
+        
 def main(args=None):
     rclpy.init(args=args)
-    node = BNO08Node()
+    node = IMUPublisher()
+    
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
+        # Clean up
+        if node.ser is not None and node.ser.is_open:
+            node.ser.close()
         node.destroy_node()
         rclpy.shutdown()
 

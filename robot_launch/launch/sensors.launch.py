@@ -72,6 +72,14 @@ def generate_launch_description():
         emulate_tty=True
     )
 
+    imu_node = Node(
+        package='robot_slam',
+        executable='imu_node',
+        name='imu_node',
+        output='screen',
+        emulate_tty=True
+    )
+
     joystick_control_node = Node(
         package='joy_control',
         executable='joystick_control_node',
@@ -82,11 +90,12 @@ def generate_launch_description():
 
     return LaunchDescription([
         slam_node,
-        camera_node,
+        # camera_node,
         # speech_node,
-        llm_action_server_node,
-        llm_prompt_node,
-        lidar_launch,
-        velocity_control_node,
-        joystick_control_node,
+        # llm_action_server_node,
+        # llm_prompt_node,
+        # lidar_launch,
+        # velocity_control_node,
+        # joystick_control_node,
+        imu_node,
     ])
