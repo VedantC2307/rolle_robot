@@ -34,8 +34,8 @@ class JoystickControlNode(Node):
             # Expecting only joystick data with x and y values
             if data.get('type') == 'joystick':
                 twist = Twist()
-                twist.linear.x = float(data['data']['y'])
-                twist.angular.z = float(data['data']['x'])
+                twist.linear.x = - float(data['data']['y'])
+                twist.angular.z = - float(data['data']['x'])
                 # Other twist fields remain 0.0 by default.
                 self.publisher.publish(twist)
                 self.get_logger().info(f'Published Twist: linear.x={twist.linear.x}, angular.z={twist.angular.z}')

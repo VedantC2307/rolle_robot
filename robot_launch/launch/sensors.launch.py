@@ -94,8 +94,8 @@ def generate_launch_description():
         # speech_node,
         # llm_action_server_node,
         # llm_prompt_node,
-        # lidar_launch,
-        # velocity_control_node,
-        # joystick_control_node,
+        lidar_launch,
+        velocity_control_node,
+        joystick_control_node,
         imu_node,
     ])

@@ -7,6 +7,7 @@ from geometry_msgs.msg import Quaternion
 import serial
 import json
 import time
+import math
 
 class IMUPublisher(Node):
     def __init__(self):
@@ -19,7 +20,7 @@ class IMUPublisher(Node):
         self.declare_parameter('serial_port', '/dev/ttyS0')
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('frame_id', 'imu_link')
-        self.declare_parameter('publish_rate', 60.0)  # Hz
+        self.declare_parameter('publish_rate', 55.0)  # Hz
         
         # Get parameters
         self.serial_port = self.get_parameter('serial_port').value
@@ -27,8 +28,9 @@ class IMUPublisher(Node):
         self.frame_id = self.get_parameter('frame_id').value
         self.publish_rate = self.get_parameter('publish_rate').value
         
-        # Initialize serial connection
+        # Initialize serial connection and previous quaternion
         self.ser = None
+        self.prev_quaternion = None
         self.connect_serial()
         
         # Create timer for checking serial data
@@ -60,6 +62,9 @@ class IMUPublisher(Node):
             
             if not line:
                 return
+
+            # Replace lowercase nan with null to satisfy JSON parser
+            line = line.replace("nan", "null")
             
             # Parse JSON data
             try:
@@ -68,6 +73,14 @@ class IMUPublisher(Node):
                 # Check if we have all quaternion components
                 if all(key in data for key in ['qw', 'qx', 'qy', 'qz']):
                     quaternion = [data['qw'], data['qx'], data['qy'], data['qz']]
+                    # Check for None values and use previous value if necessary
+                    if any(q is None for q in quaternion):
+                        if self.prev_quaternion is not None:
+                            self.get_logger().warn('Received nan values, using previous quaternion')
+                            quaternion = self.prev_quaternion
+                        else:
+                            self.get_logger().warn('Received nan values and no previous quaternion available')
+                            return
                     self.publish_imu_data(quaternion)
                 else:
                     self.get_logger().warn(f'Incomplete quaternion data: {data}')
@@ -110,6 +123,8 @@ class IMUPublisher(Node):
         # Publish the message
         self.imu_publisher.publish(imu_msg)
         self.get_logger().debug(f'Published IMU data: w={quaternion_values[0]:.2f}, x={quaternion_values[1]:.2f}, y={quaternion_values[2]:.2f}, z={quaternion_values[3]:.2f}')
+        # Update previous quaternion
+        self.prev_quaternion = quaternion_values
         
 def main(args=None):
     rclpy.init(args=args)

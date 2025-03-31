@@ -30,8 +30,9 @@ class VelocityController(Node):
         signal.signal(signal.SIGTERM, self.signal_handler)
 
     def cmd_vel_callback(self, msg):
-        self.setpoint.linear.x = msg.linear.x  
-        self.setpoint.angular.z = - msg.angular.z  # Rotation # change this to positive for rolle  robot
+        # Reverse logic: forward command now gives forward motion and rotation stays as commanded.
+        self.setpoint.linear.x = -msg.linear.x  
+        self.setpoint.angular.z = msg.angular.z  
         self.get_logger().debug(f'Received velocity command - linear: {msg.linear.x}')
 
     def control_loop(self):
@@ -56,10 +57,10 @@ class VelocityController(Node):
 
     def map_to_pwm(self, value):
         # Define PWM limits
-        min_forward_pwm = 100
+        min_forward_pwm = 140
         max_forward_pwm = 170
-        min_backward_pwm = 120
-        max_backward_pwm = 170
+        min_backward_pwm = 140
+        max_backward_pwm = 160
 
         # Map velocity to PWM ranges
         if value > 0:
@@ -73,7 +74,7 @@ class VelocityController(Node):
     def map_to_rotation_pwm(self, value):
         # Define PWM limits for rotation (might need different values than forward/backward)
         min_rotation_pwm = 160
-        max_rotation_pwm = 200
+        max_rotation_pwm = 190
 
         # Map angular velocity to PWM ranges
         if value > 0:  # Clockwise rotation
