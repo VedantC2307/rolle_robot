@@ -116,10 +116,7 @@ class DiffDriveController(Node):
         return int(pwm)
     
     def control_loop(self):
-        """
-        Timer callback running at 10 Hz. Uses the actual wheel speeds from /robot_vel,
-        applies the P controller to compute PWM commands, and sends the commands via serial.
-        """
+        
         # Compute PWM commands using the P controller for each wheel
         left_pwm = self.compute_pwm(self.desired_left, self.actual_left)
         right_pwm = self.compute_pwm(self.desired_right, self.actual_right)
