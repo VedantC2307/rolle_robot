@@ -94,8 +94,8 @@ class SLAMNode(Node):
         self.get_logger().debug("Pose data published to '/rolle/posestamped' topic.")
 
         msg = Vector3()
-        msg.x = pose_data["position"]["x"]
-        msg.y = pose_data["position"]["y"]
+        msg.x = pose_data["position"]["y"]
+        msg.y = pose_data["position"]["x"]
         msg.z = pose_data["roll"]["roll"]
         self.pose_publisher.publish(msg)
         self.get_logger().debug("Pose data published to '/rolle/pose' topic.")

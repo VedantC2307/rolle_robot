@@ -37,6 +37,14 @@ def generate_launch_description():
         emulate_tty=True
     )
 
+    motor_control_node = Node(
+        package='motor_controller',
+        executable='motor_control_node',
+        name='Motor_Control_Node',
+        output='screen',
+        emulate_tty=True
+    )
+
     # Launch slam_node
     slam_node = Node(
         package='robot_slam',
@@ -56,21 +64,21 @@ def generate_launch_description():
     )
 
     # Robot Speech Node
-    speech_node = Node(
-        package='robot_slam',
-        executable='robot_speech_node',
-        name='robot_speech_node',
-        output='screen',
-        emulate_tty=True
-    )
+    # speech_node = Node(
+    #     package='robot_slam',
+    #     executable='robot_speech_node',
+    #     name='robot_speech_node',
+    #     output='screen',
+    #     emulate_tty=True
+    # )
 
-    llm_prompt_node = Node(
-        package='robot_slam',
-        executable='llm_prompt_node',
-        name='llm_prompt_node',
-        output='screen',
-        emulate_tty=True
-    )
+    # llm_prompt_node = Node(
+    #     package='robot_slam',
+    #     executable='llm_prompt_node',
+    #     name='llm_prompt_node',
+    #     output='screen',
+    #     emulate_tty=True
+    # )
 
     imu_node = Node(
         package='robot_slam',
@@ -88,14 +96,23 @@ def generate_launch_description():
         emulate_tty=True
     )
 
+    # Include mobile sensor launch file instead of the node
+    mobile_sensor_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory('mobile_sensor'), 'launch', 'mobile_sensors.launch.py')
+        )
+    )
+
     return LaunchDescription([
         slam_node,
+        motor_control_node,
         # camera_node,
         # speech_node,
         # llm_action_server_node,
         # llm_prompt_node,
-        lidar_launch,
-        velocity_control_node,
-        joystick_control_node,
-        imu_node,
+        # lidar_launch,
+        # velocity_control_node,
+        # joystick_control_node,
+        mobile_sensor_launch,
+        # imu_node,
     ])

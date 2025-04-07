@@ -38,7 +38,7 @@ class JoystickControlNode(Node):
                 twist.angular.z = - float(data['data']['x'])
                 # Other twist fields remain 0.0 by default.
                 self.publisher.publish(twist)
-                self.get_logger().info(f'Published Twist: linear.x={twist.linear.x}, angular.z={twist.angular.z}')
+                self.get_logger().debug(f'Published Twist: linear.x={twist.linear.x}, angular.z={twist.angular.z}')
                 
         except zmq.Again:
             # No message available

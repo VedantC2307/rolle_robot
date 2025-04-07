@@ -19,18 +19,22 @@ def process_llm_result(node, llm_result):
     """
     try:
         print("Started processing LLM result")
-        # llm_result is already a dictionary
+        # Check if llm_result is a list of commands (multi-step format)
+        if isinstance(llm_result, list):
+            node.get_logger().info(f"Found {len(llm_result)} commands to execute sequentially")
+            return None, None, llm_result, None
+        
+        # Original single-command format processing
         data = llm_result
         if not data:
             node.get_logger().error("Empty response from LLM server")
             return None, None, None, None
 
-        # Check if this is the new multi-command format
-        if "commands" in data and isinstance(data["commands"], list):
-            node.get_logger().info(f"Found {len(data['commands'])} commands to execute sequentially")
+        # Check for the older multi-command format (keeping this for backward compatibility)
+        if "command" in data and isinstance(data["command"], list):
+            node.get_logger().info(f"Found {len(data['command'])} commands to execute sequentially")
             return None, None, data["commands"], None
 
-        # Original single-command format processing
         command_str = data.get("command")
         robot_speech = data.get("description", " ")
 

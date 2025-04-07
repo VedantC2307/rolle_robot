@@ -11,6 +11,8 @@ from threading import Lock
 import math
 from robot_llm.helper_functions_v2 import process_llm_result, capture_image
 import asyncio
+import zmq  # Add ZMQ import
+import time
 
 class LLMImageActionServer(Node):
     def __init__(self):
@@ -22,7 +24,7 @@ class LLMImageActionServer(Node):
         
         # Constants
         # self.SAFE_DISTANCE_THRESHOLD = 0.20  # meters
-        self.MOVEMENT_CHECK_RATE = 0.1  # seconds
+        self.MOVEMENT_CHECK_RATE = 0.05  # seconds (20 Hz)
 
         self.llm_client = LLMClient()  # Initialize LLMClient
         # Initialize action server
@@ -32,6 +34,13 @@ class LLMImageActionServer(Node):
             'llm_interaction',
             self.execute_callback
         )
+
+        # Initialize ZeroMQ connection
+        self.zmq_port = 5555
+        self.zmq_context = zmq.Context()
+        self.zmq_socket = self.zmq_context.socket(zmq.REQ)
+        self.zmq_socket.connect(f"tcp://192.168.0.176:{self.zmq_port}")
+        self.get_logger().info(f"Connected to ZMQ server on port {self.zmq_port}")
 
         self.camera_subscription = self.create_subscription(
             String,
@@ -57,6 +66,9 @@ class LLMImageActionServer(Node):
 
         # self.publish_motor_command = self.create_publisher(String, '/motor_command', 10)
         self.publish_motor_velocity = self.create_publisher(Twist, '/cmd_vel_rolle', 10)  # Fixed typo
+
+
+        #Initialize zeromq
         
         self.current_pose = None
         self.is_moving = False
@@ -64,6 +76,13 @@ class LLMImageActionServer(Node):
         self.target_distance = None
         self.target_rotation = None
         self.movement_type = None
+
+        # Add initialization for rotation variables
+        self.rotation_ramp_done = False
+        self.rotation_start_time = None
+
+        self.INITIAL_ROTATION_SPEED = 0.4  # Initial high rotation speed
+        self.CRUISE_ROTATION_SPEED = 0.1
 
     def pose_callback(self, msg):
         """Thread-safe pose update"""
@@ -85,9 +104,19 @@ class LLMImageActionServer(Node):
         elif command == "BACKWARD":
             vel_msg.linear.x = -0.1
         elif command == "CLOCKWISE":
-            vel_msg.angular.z = -0.1  # Added rotation commands
+            if not self.rotation_ramp_done:
+                vel_msg.angular.z = -self.INITIAL_ROTATION_SPEED  # Start with high speed
+                self.rotation_start_time = self.get_clock().now()
+                self.rotation_ramp_done = False
+            else:
+                vel_msg.angular.z = -self.CRUISE_ROTATION_SPEED  # Continue with lower speed
         elif command == "ANTICLOCKWISE":
-            vel_msg.angular.z = 0.1  # Added rotation commands
+            if not self.rotation_ramp_done:
+                vel_msg.angular.z = self.INITIAL_ROTATION_SPEED  # Start with high speed
+                self.rotation_start_time = self.get_clock().now()
+                self.rotation_ramp_done = False
+            else:
+                vel_msg.angular.z = self.CRUISE_ROTATION_SPEED  # Continue with lower speed
         else:
             vel_msg.linear.x = 0.0
             vel_msg.angular.z = 0.0
@@ -102,8 +131,15 @@ class LLMImageActionServer(Node):
 
     async def execute_callback(self, goal_handle):
         """Executes the action when goal is received."""
-        self.get_logger().info(f"Triggering LLM with Goal...")
+        self.get_logger().info(f"Triggering LLM with Goal: {goal_handle.request.prompt}")
 
+        # Reset any leftover state
+        self.is_moving = False
+        self.start_pose = None
+        self.target_distance = None
+        self.target_rotation = None
+        self.movement_type = None
+        
         feedback_msg = LLMTrigger.Feedback()
         result = LLMTrigger.Result()
         
@@ -116,21 +152,46 @@ class LLMImageActionServer(Node):
             self.get_logger().warn("No Image data available. Not sending anything to the LLM")
             result.success = False
             result.message = "Failed to get image."
-            goal_handle.abort(result=result)
+            goal_handle.abort()  # Remove 'result' argument
             return result
 
         capture_image(self, b64_image)  # Call the helper function
 
         try:
-            llm_response = self.llm_client.detect_object_with_gpt(b64_image, prompt)
+            # Send the prompt and base64 image to the LLM using zeromq
+            request_data = {
+                'user_command': prompt  # Using the actual prompt from the request
+            }
+            
+            self.get_logger().info(f"Sending request to LLM via ZMQ...")
+            self.zmq_socket.send_json(request_data)
+            
+            # Wait for response with timeout (120 seconds)
+            if self.zmq_socket.poll(timeout=120000):
+                response = self.zmq_socket.recv_json()
+                
+                if response.get('status') == 'success':
+                    response_result = response.get('result', {})
+                    llm_response = response_result.get('responses', [])  # Get the list directly, default to empty list
+                    print(llm_response)
+                    # self.get_logger().info(f"Received successful response from LLM:{llm_response}")
+                else:
+                    self.get_logger().error(f"LLM returned error: {response.get('error', 'Unknown error')}")
+                    raise Exception(f"LLM error: {response.get('error', 'Unknown error')}")
+            else:
+                self.get_logger().error("Timeout waiting for LLM response")
+                raise Exception("Timeout waiting for LLM response")
+
         except Exception as e:
             self.get_logger().error(f"Error calling LLM: {e}")
             result.success = False
             result.message = "Error calling LLM."
-            goal_handle.abort(result=result)
+            goal_handle.abort()  # Remove 'result' argument
             return result
         
         print(llm_response)
+        # Remove the extremely long sleep that blocks execution
+        # time.sleep(10000)
 
         if llm_response:
             self.get_logger().info("LLM calling successful")
@@ -145,9 +206,12 @@ class LLMImageActionServer(Node):
                 # Sequential execution of commands
                 command_count = len(commands_or_data)
                 self.get_logger().info(f"Executing sequence of {command_count} commands")
+
+                time.sleep(1)  
                 
                 for i, command_data in enumerate(commands_or_data):
                     self.get_logger().info(f"Executing command {i+1}/{command_count}")
+                    time.sleep(5)
                     
                     # Process each command individually
                     cmd_str = command_data.get("command", "")
@@ -199,7 +263,9 @@ class LLMImageActionServer(Node):
                     # Send velocity command and wait for completion
                     self.send_velocity_command(motor_cmd)
                     self.is_moving = True
-                    await self.wait_for_movement_completion()
+                    
+                    # Instead of awaiting, use a synchronous wait
+                    self.wait_for_movement_completion(goal_handle)
                     
                     feedback_msg.status = f"Completed command {i+1}/{command_count}"
                     goal_handle.publish_feedback(feedback_msg)
@@ -208,9 +274,10 @@ class LLMImageActionServer(Node):
                 result.success = True
                 result.message = "Sequential LLM Tasks Executed"
                 result.llm_response = json.dumps(llm_response)
-                goal_handle.succeed(result=result)
+                goal_handle.succeed()
                 return result
-            
+
+                # Then return the result separately            
             # Handle single command case
             self.get_logger().info("LLM calling successful")
             feedback_msg.status = "LLM processing successful."
@@ -218,9 +285,6 @@ class LLMImageActionServer(Node):
 
             # Process the raw LLM response
             motor_command, units, previous_task_data, speech = process_llm_result(self, llm_response)
-            # Outputs: motor_command, units, previous_task_data, speech
-
-            # print(speech)
 
             # Handle speech if present
             if speech:
@@ -235,14 +299,14 @@ class LLMImageActionServer(Node):
                 result.success = True
                 result.message = "LLM Task Executed."
                 result.llm_response = json.dumps(llm_response)
-                goal_handle.succeed()  # Remove result argument
+                goal_handle.succeed()
                 return result
             elif motor_command == "TALK":
                 self.is_moving = False
                 result.success = True
                 result.message = "LLM Task Executed."
                 result.llm_response = json.dumps(llm_response)
-                goal_handle.succeed()  # Remove result argument
+                goal_handle.succeed()
                 return result
 
             # Process movement command if present
@@ -269,21 +333,51 @@ class LLMImageActionServer(Node):
             self.get_logger().warn("No response from LLM.")
             result.success = False
             result.message = "No response from LLM."
-            goal_handle.abort(result=result)
+            goal_handle.abort()  # Remove 'result' argument
 
         return result
 
-    async def wait_for_movement_completion(self):
+    def wait_for_movement_completion(self, goal_handle):
         """Waits for the current movement to complete before continuing."""
-        self.get_logger().debug("Waiting for movement to complete...")
-        while self.is_moving and rclpy.ok():
-            await asyncio.sleep(0.1)  # Non-blocking wait
-        self.get_logger().debug("Movement completed")
+        self.get_logger().info("Waiting for movement to complete...")
+        
+        # Make sure the timeout is functioning
+        poll_rate = 10.0  # Hz
+        max_wait_time = 20.0  # seconds, slightly reduced to avoid long waits
+        start_time = time.time()
+        
+        try:
+            while self.is_moving and rclpy.ok():
+                # Add timeout logic to avoid getting stuck in this loop
+                if time.time() - start_time > max_wait_time:
+                    self.get_logger().warn(f"Movement timeout after {max_wait_time} seconds - forcing stop")
+                    self.stop_movement()
+                    break
+                    
+                # Use spin_once which works with ROS's executor
+                rclpy.spin_once(self, timeout_sec=1.0/poll_rate)
+        except Exception as e:
+            self.get_logger().error(f"Error during movement completion wait: {e}")
+            self.stop_movement()
+            
+        self.get_logger().info("Movement completed or timed out")
     
     def movement_control_callback(self):
         """Timer callback for continuous movement monitoring"""
         if not self.is_moving or self.start_pose is None or self.current_pose is None:
             return
+        
+        # Handle rotation ramping
+        if self.movement_type in ["CLOCKWISE", "ANTICLOCKWISE"] and not self.rotation_ramp_done:
+            current_time = self.get_clock().now()
+            if self.rotation_start_time is not None:
+                # Switch to cruise speed after 0.5 seconds
+                time_diff = (current_time - self.rotation_start_time).nanoseconds / 1e9
+                if time_diff > 0.5:  # 500ms of initial high-speed rotation
+                    self.rotation_ramp_done = True
+                    # Resend command to apply the cruise speed
+                    self.send_velocity_command(self.movement_type)
+                    self.get_logger().info("Switched to cruise rotation speed")
         
         with self.pose_lock:
             if self.start_pose is None:
@@ -292,11 +386,11 @@ class LLMImageActionServer(Node):
             try:
                 if self.movement_type in ["FORWARD", "BACKWARD"]:
                     traveled_distance = self.calculate_distance(self.start_pose, self.current_pose)
-                    self.get_logger().debug(f"Traveled distance: {traveled_distance:.2f} meters")
+                    self.get_logger().info(f"Traveled distance: {traveled_distance:.2f} meters, Target: {self.target_distance:.2f} meters")
 
-                    safe_travel_distance = traveled_distance + 0.3
-                    
-                    if safe_travel_distance >= self.target_distance:
+                    safe_distance_threshold = traveled_distance + 0.20  # meters
+                    # Remove the safety margin to make it more accurate
+                    if safe_distance_threshold >= self.target_distance:
                         self.get_logger().info(f"Target distance {self.target_distance:.2f} meters reached")
                         self.stop_movement()
                 
@@ -307,9 +401,11 @@ class LLMImageActionServer(Node):
                     else:
                         rotated_angle = abs(current_angle - self.start_pose.z)
                     
-                    self.get_logger().debug(f"Rotated angle: {rotated_angle:.2f} degrees")
+                    self.get_logger().info(f"Rotated angle: {rotated_angle:.2f} degrees, Target: {self.target_rotation:.2f} degrees")
                     
-                    if rotated_angle >= self.target_rotation:
+                    # Add a safety threshold like in the working implementation
+                    safe_rotation_threshold = rotated_angle + 20  # degrees
+                    if safe_rotation_threshold >= self.target_rotation:
                         self.get_logger().info(f"Target rotation {self.target_rotation:.2f} degrees reached")
                         self.stop_movement()
                         
@@ -331,12 +427,15 @@ class LLMImageActionServer(Node):
 
     def stop_movement(self):
         """Stop the robot movement"""
+        self.get_logger().info("Stopping movement now")
         self.stop_message()  # Send stop command first
         self.is_moving = False
         self.start_pose = None
         self.target_distance = None
         self.target_rotation = None
         self.movement_type = None
+        self.rotation_ramp_done = False  # Reset the rotation ramp flag
+        self.rotation_start_time = None  # Reset the rotation start time
         self.get_logger().info("Movement stopped")
 
     def calculate_distance(self, start_pose, current_pose):
@@ -346,6 +445,11 @@ class LLMImageActionServer(Node):
     def destroy_node(self):
         """Destroys the node."""
         self.get_logger().info("Shutting down LLM Image Action Server")
+        # Close ZMQ connection
+        if hasattr(self, 'zmq_socket'):
+            self.zmq_socket.close()
+        if hasattr(self, 'zmq_context'):
+            self.zmq_context.term()
         super().destroy_node()
 
 def main(args=None):
@@ -357,7 +461,7 @@ def main(args=None):
     except KeyboardInterrupt:
         llm_image_action_server.get_logger().info("Keyboard Interrupt, shutting down")
     finally:
-       llm_image_action_server.destroy_node()
+        llm_image_action_server.destroy_node()
 
     rclpy.shutdown()
 

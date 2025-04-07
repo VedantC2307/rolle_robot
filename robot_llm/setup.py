@@ -20,7 +20,8 @@ setup(
     # tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'llm_action_server = robot_llm.llm_action_server_node:main',
+            # 'llm_action_server = robot_llm.llm_action_server_node:main',
+            'llm_action_server = robot_llm.vlm_action_server_kd_node:main',
         ],
     },
 )
