@@ -7,7 +7,7 @@ import signal
 class SimpleVelocityPublisher(Node):
     def __init__(self):
         super().__init__('simple_velocity_publisher')
-        self.publisher = self.create_publisher(Twist, '/rolle/cmd_vel', 10)
+        self.publisher = self.create_publisher(Twist, '/cmd_vel_rolle', 10)
         self.timer = self.create_timer(0.1, self.timer_callback)  # 10Hz
         self.get_logger().info('Simple Velocity Publisher started')
         
@@ -16,7 +16,7 @@ class SimpleVelocityPublisher(Node):
 
     def timer_callback(self):
         msg = Twist()
-        msg.linear.x = 0.2  # Constant 0.1 m/s in x direction
+        msg.linear.x = -0.3  # Constant 0.2 m/s in x direction (not 0.1 as comment suggests)
         msg.angular.z = 0.0  # No rotation
         self.publisher.publish(msg)
     

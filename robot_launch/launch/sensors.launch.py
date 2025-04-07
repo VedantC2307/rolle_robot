@@ -105,7 +105,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         slam_node,
-        motor_control_node,
+        # motor_control_node,
         # camera_node,
         # speech_node,
         # llm_action_server_node,

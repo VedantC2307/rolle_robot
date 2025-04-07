@@ -9,11 +9,13 @@ import math
 # Robot and control parameters
 WHEEL_BASE = 0.135    # Distance between wheels (m)
 MAX_SPEED = 0.4       # Maximum expected wheel speed (m/s)
-MIN_PWM = 150         # Minimum PWM (non-zero) to overcome static friction
+MIN_PWM = 80         # Minimum PWM (non-zero) to overcome static friction
 MAX_PWM = 220         # Maximum PWM
-KP = 950             # Proportional gain for the controller
+
 DEADBAND_VEL = 0.1   # Deadband velocity threshold (m/s)
 
+KP = 300            # Proportional gain for the controller
+KI = 15  # Try something small first, tune as needed
 # Serial port configuration (adjust as needed)
 SERIAL_PORT = '/dev/ttyS0'
 BAUD_RATE = 115200
@@ -29,6 +31,10 @@ class DiffDriveController(Node):
         # Actual wheel speeds (from /robot_vel)
         self.actual_left = 0.0
         self.actual_right = 0.0
+
+        # Integral error terms
+        self.left_integral = 0.0
+        self.right_integral = 0.0
         
         # Subscribe to /cmd_vel for desired velocities
         self.create_subscription(Twist, '/cmd_vel_rolle', self.cmd_vel_callback, 10)
@@ -86,20 +92,35 @@ class DiffDriveController(Node):
         self.left_speed_pub.publish(left_msg)
         self.right_speed_pub.publish(right_msg)
         
-        self.get_logger().info(f"Actual speeds -> Left: {self.actual_left:.2f} m/s, Right: {self.actual_right:.2f} m/s")
+        self.get_logger().debug(f"Actual speeds -> Left: {self.actual_left:.2f} m/s, Right: {self.actual_right:.2f} m/s")
 
-    def compute_pwm(self, desired_speed: float, actual_speed: float) -> int:
+    def compute_pwm(self, desired_speed: float, actual_speed: float, wheel: str) -> int:
         """
         Compute the PWM command using a simple proportional controller.
         The error is the difference between desired and actual speeds.
         """
         # If desired speed is 0 (within a small threshold), return 0 PWM
-        if abs(desired_speed) < 0.001:
+        if abs(desired_speed) < 0.002:
+            # Reset integral to avoid wind-up
+            if wheel == "left":
+                self.left_integral = 0.0
+            else:
+                self.right_integral = 0.0
             return 0
             
         error = desired_speed - actual_speed
-        pwm = KP * error
+        
         # print(f"Error: {error}, PWM: {pwm}")
+
+        # Integrate error over time (Δt = 0.1s from 10Hz control loop)
+        if wheel == "left":
+            self.left_integral += error * 0.1
+            integral_term = KI * self.left_integral
+        else:
+            self.right_integral += error * 0.1
+            integral_term = KI * self.right_integral
+
+        pwm = KP * error + integral_term
         
         # Limit PWM to allowed range
         if pwm > MAX_PWM:
@@ -118,18 +139,18 @@ class DiffDriveController(Node):
     def control_loop(self):
         
         # Compute PWM commands using the P controller for each wheel
-        left_pwm = self.compute_pwm(self.desired_left, self.actual_left)
-        right_pwm = self.compute_pwm(self.desired_right, self.actual_right)
+        left_pwm = self.compute_pwm(self.desired_left, self.actual_left, "left")
+        right_pwm = self.compute_pwm(self.desired_right, self.actual_right, "right")
         
         self.get_logger().debug(f"Computed PWM -> Left: {left_pwm}, Right: {right_pwm}")
                 
         # Format the command string for the motor controller
         command_str = f"PWM:DIFF:{left_pwm},{right_pwm}\r\n"
-        self.get_logger().debug(f"Sending command: {command_str.strip()}")
+        self.get_logger().info(f"Sending command: {command_str.strip()}")
         
         # Send the command via serial if available
-# if self.ser is not None:
-#     self.ser.write(command_str.encode())
+        if self.ser is not None:
+            self.ser.write(command_str.encode())
 
 def main(args=None):
     rclpy.init(args=args)
