@@ -16,8 +16,8 @@ class SimpleVelocityPublisher(Node):
 
     def timer_callback(self):
         msg = Twist()
-        msg.linear.x = -0.3  # Constant 0.2 m/s in x direction (not 0.1 as comment suggests)
-        msg.angular.z = 0.0  # No rotation
+        msg.linear.x = 0.0
+        msg.angular.z = 0.3  # No rotation
         self.publisher.publish(msg)
     
     def stop_robot(self):
