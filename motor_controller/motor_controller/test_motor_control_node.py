@@ -9,16 +9,16 @@ import math
 # Robot and control parameters
 WHEEL_BASE = 0.14    # Distance between wheels (m)
 MAX_SPEED = 0.5       # Maximum expected wheel speed (m/s)
-MIN_PWM = 50         
+MIN_PWM = 70         
 MAX_PWM = 250         # Maximum PWM
 DEADBAND_VEL = 0.07   # Deadband velocity threshold (m/s)
-ROTATION_GAIN = 20.0
-MIN_FEEDFORWARD = 00  
+ROTATION_GAIN = 12.0
+MIN_FEEDFORWARD = 0
 
 # PI controller parameters
-KP = 390  
-KI = 25
-KF = 10  # Feedforward gain
+KP = 500  
+KI = 30
+# Removed feedforward gain (KF)
 
 # Serial port configuration (adjust as needed)
 SERIAL_PORT = '/dev/ttyS0'
@@ -127,7 +127,7 @@ class DiffDriveController(Node):
 
     def compute_pwm(self, desired_speed: float, actual_speed: float, wheel: str, dt: float) -> int:
         """
-        Compute the PWM command using a PI controller with a feedforward term.
+        Compute the PWM command using a PI controller without feedforward.
         dt is the control loop interval.
         """
         # If desired speed is very small, reset the integral and return 0.
@@ -151,14 +151,7 @@ class DiffDriveController(Node):
             self.right_integral = max(min(proposed_integral, max_integral), -max_integral)
             integral_term = KI * self.right_integral
 
-        # Feedforward computation. Ensure feedforward is applied with the correct sign.
-        if abs(desired_speed) > 0.001:
-            feedforward_magnitude = max(KF * (abs(desired_speed) / MAX_SPEED), MIN_FEEDFORWARD)
-            feedforward_term = feedforward_magnitude * (1 if desired_speed > 0 else -1)
-        else:
-            feedforward_term = 0
-
-        raw_pwm = KP * error + integral_term + feedforward_term
+        raw_pwm = 40 +KP * error + integral_term
 
         # Apply saturation (and deadband) to the raw PWM before sending to motors.
         pwm = self.apply_saturation(raw_pwm)
@@ -181,8 +174,8 @@ class DiffDriveController(Node):
         self.get_logger().debug(f"Sending command: {command_str.strip()}")
         
         # Send the command via serial if available.
-        # if self.ser is not None:
-        #     self.ser.write(command_str.encode())
+        if self.ser is not None:
+            self.ser.write(command_str.encode())
 
 def main(args=None):
     rclpy.init(args=args)

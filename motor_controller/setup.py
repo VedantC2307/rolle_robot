@@ -20,7 +20,7 @@ setup(
     # tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'motor_control_node = motor_controller.motor_control_node:main',
+            'motor_control_node = motor_controller.test_motor_control_node:main',
             'velocity_control_node = motor_controller.velocity_controller_node:main',
             'test_velocity_publisher = motor_controller.test_velocity_publisher:main',
         ],
