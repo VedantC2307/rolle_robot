@@ -104,15 +104,15 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        slam_node,
-        # motor_control_node,
+        # slam_node,
+        motor_control_node,
         # camera_node,
         # speech_node,
         # llm_action_server_node,
         # llm_prompt_node,
-        # lidar_launch,
+        lidar_launch,
         # velocity_control_node,
-        joystick_control_node,
-        mobile_sensor_launch,
+        # joystick_control_node,
+        # mobile_sensor_launch,
         # imu_node,
     ])

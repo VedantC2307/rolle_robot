@@ -81,8 +81,10 @@ class MainController(Node):
             goal_msg = LLMTrigger.Goal()
             goal_msg.prompt = current_prompt
             
+            self.get_logger().info('Waiting for LLM server...')
             self.llm_action_client.wait_for_server()
             
+            self.get_logger().info('Sending goal to LLM server...')
             send_goal_future = self.llm_action_client.send_goal_async(goal_msg)
             send_goal_future.add_done_callback(self.goal_response_callback)
 
@@ -91,6 +93,8 @@ class MainController(Node):
         if not goal_handle.accepted:
             self.get_logger().warning('Goal rejected')
             self.processing_prompt = False
+            # Reset the last processed prompt to enable retrying
+            self.last_processed_prompt = None 
             return
 
         self.get_logger().info('Goal accepted')
@@ -98,14 +102,21 @@ class MainController(Node):
         result_future.add_done_callback(self.get_result_callback)
 
     def get_result_callback(self, future):
-        result = future.result().result
-        if result.success:
-            self.get_logger().info(f"LLM Response: {result.llm_response}")
-            self.last_processed_prompt = self.current_prompt
-        else:
-            self.get_logger().error("Failed to get LLM response")
+        try:
+            result = future.result().result
+            if result.success:
+                self.get_logger().info(f"LLM Response: {result.llm_response}")
+                self.last_processed_prompt = self.current_prompt
+            else:
+                self.get_logger().error("Failed to get LLM response")
+                self.last_processed_prompt = None
+        except Exception as e:
+            self.get_logger().error(f"Error processing result: {e}")
             self.last_processed_prompt = None
+        
+        # Always reset processing flag to allow next command
         self.processing_prompt = False
+        self.get_logger().info("Ready for next command")
 
     def destroy_node(self):
         """Cleanup method"""
