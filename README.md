@@ -1,5 +1,5 @@
 # Roll-E: Meccanum Wheel LLM Controlled Robot
-![Robot](resources/robot.jpg)
+![Robot](resources/front_photo.jpg)
 
 This project explores integrating large language models (LLMs) with mobile robotics, enabling natural language interaction, visual scene understanding, and localization. While currently implemented on a mobile robot, the approach is adaptable to various robotic platforms.
 
