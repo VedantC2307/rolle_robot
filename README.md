@@ -33,8 +33,7 @@ The following diagram illustrates the core components and their interactions:
 - **Power Bank** - Powers the Raspberry Pi
 
 ## Robot In Action
-
-[Demo video](https://youtu.be/FYqDDZrb-XY)
+v1.0.0: [Demo video](https://youtu.be/FYqDDZrb-XY) (Progress till March)
 
 
 ## Ongoing Work
